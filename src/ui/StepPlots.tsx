@@ -374,7 +374,7 @@ export function CdfPlot({
           <line x1={sx(xMin)} x2={sx(value)} y1={sy(xi)} y2={sy(xi)} stroke={c.ink} strokeWidth={2} />
           <line x1={sx(value)} x2={sx(value)} y1={sy(xi)} y2={sy(0)} stroke={c.ink} strokeWidth={2} />
           <circle cx={sx(value)} cy={sy(xi)} r={5} fill={color} stroke={c.surface} strokeWidth={2} />
-          <text x={sx(xMin) + 6} y={sy(xi) - 6} className="plot-annot">
+          <text x={sx(xMin) + 6} y={sy(xi) + (xi > 0.85 ? 14 : -6)} className="plot-annot">
             ξ = {xi.toFixed(4)}
           </text>
           <text x={sx(value) + (right ? -6 : 6)} y={sy(0) - 8} className="plot-annot" textAnchor={right ? 'end' : 'start'}>

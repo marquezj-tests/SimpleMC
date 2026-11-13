@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "A teaching Monte Carlo code for photon transport, using NIST XCOM cross sections",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -12,7 +12,9 @@
  *  - fission: total ν̄(E) from data, outgoing energy from a Watt spectrum
  *    fitted to the evaluated fission spectrum of each nuclide;
  *  - capture: the neutron disappears;
- *  - optional free-gas thermal motion of the targets below 400 kT.
+ *  - optional free-gas thermal motion of the targets below 400 kT;
+ *  - optional thermal scattering law S(α,β) (ACE discrete form) for bound
+ *    hydrogen below its table limit.
  *
  * keff is estimated (a) from the ratio of the number of fission sites
  * banked to the number of source neutrons in each cycle, and (b) from the
@@ -23,7 +25,7 @@ import type { Engine, Track } from './engine';
 import { RNG } from './rng';
 import { invertCdf, isotropic, rotate, tabulateCdfOn, type Cdf, type Vec3 } from './sampling';
 
-export const NREACTIONS = ['elastic', 'inelastic', 'n2n', 'n3n', 'fission', 'capture'] as const;
+export const NREACTIONS = ['elastic', 'thermal', 'inelastic', 'n2n', 'n3n', 'fission', 'capture'] as const;
 export type NReaction = (typeof NREACTIONS)[number];
 export type NPartials = Record<NReaction, number>;
 
@@ -48,15 +50,91 @@ export interface NuclideTable {
   elasticMu: { E: number[]; xi: number; mu: number[][] };
 }
 
+/**
+ * Thermal scattering law S(α,β) in ACE form: for each incident energy E[i],
+ * outgoing energies Eout[i][j] (equiprobable, or "skewed" with relative
+ * weights 0.1, 0.4 for the two bins at each end) and, for each of them,
+ * equiprobable cosines mu[i][j][k].
+ */
+export interface SabTable {
+  id: string;
+  kT: number;
+  /** upper energy limit of the table (MeV) */
+  Emax: number;
+  source: string;
+  E: number[];
+  /** incoherent inelastic cross section per bound atom (barn) */
+  xs: number[];
+  skewed: boolean;
+  Eout: number[][];
+  mu: number[][][];
+}
+
+/** Probabilities of the outgoing-energy bins of an ACE thermal table. */
+export function sabWeights(n: number, skewed: boolean): number[] {
+  const w = new Array(n).fill(1);
+  if (skewed && n > 4) {
+    w[0] = w[n - 1] = 0.1;
+    w[1] = w[n - 2] = 0.4;
+  }
+  const sum = w.reduce((a, b) => a + b, 0);
+  return w.map((x) => x / sum);
+}
+
+export interface SabSample {
+  /** incident-energy interval and interpolation factor */
+  i: number;
+  f: number;
+  /** chosen outgoing-energy bin and cosine bin */
+  j: number;
+  k: number;
+  Enew: number;
+  mu: number;
+  /** outgoing energies at E (interpolated) and their probabilities */
+  eOut: number[];
+  weights: number[];
+  /** cosines of bin j at E (interpolated) */
+  muOut: number[];
+}
+
+/** Sample outgoing energy and cosine from an ACE thermal table (two random numbers). */
+export function sampleSab(t: SabTable, E: number, xi1: number, xi2: number): SabSample {
+  const g = t.E;
+  let i = 0;
+  while (i < g.length - 2 && g[i + 1] <= E) i++;
+  const f = Math.min(1, Math.max(0, (E - g[i]) / (g[i + 1] - g[i])));
+  const lerp = (a: number, b: number) => a + f * (b - a);
+  const n = t.Eout[i].length;
+  const eOut = t.Eout[i].map((e, j) => lerp(e, t.Eout[i + 1][j]));
+  const weights = sabWeights(n, t.skewed);
+  // outgoing-energy bin: inverse of the discrete CDF of the bin probabilities
+  let cum = 0;
+  let j = n - 1;
+  for (let q = 0; q < n; q++) {
+    cum += weights[q];
+    if (xi1 < cum) {
+      j = q;
+      break;
+    }
+  }
+  const nm = t.mu[i][j].length;
+  const muOut = t.mu[i][j].map((m, k) => lerp(m, t.mu[i + 1][j][k]));
+  const k = Math.min(nm - 1, Math.floor(xi2 * nm));
+  return { i, f, j, k, Enew: Math.max(eOut[j], 1e-12), mu: Math.min(1, Math.max(-1, muOut[k])), eOut, weights, muOut };
+}
+
 /** Nuclide with pointwise cross sections (barn) and ν̄(E). Energies in MeV. */
 export class Nuclide {
   readonly id: string;
   readonly awr: number;
   readonly table: NuclideTable;
   readonly wattCdf: Cdf;
-  constructor(t: NuclideTable) {
+  /** thermal scattering law, used below sab.Emax instead of elastic scattering */
+  readonly sab: SabTable | null;
+  constructor(t: NuclideTable, sab: SabTable | null = null) {
+    this.sab = sab;
     this.table = t;
-    this.id = t.id;
+    this.id = sab ? `${t.id} in H₂O` : t.id;
     this.awr = t.awr;
     // non-fissile nuclides get a placeholder spectrum that is never sampled
     const { a, b } = t.watt ?? { a: 1, b: 2 };
@@ -85,6 +163,18 @@ export class Nuclide {
     return this.elasticInverse(E)(xi);
   }
 
+  /** S(α,β) inelastic cross section (barn), 0 above the table limit or without table. */
+  sabXs(E: number): number {
+    const s = this.sab;
+    if (!s || E >= s.Emax) return 0;
+    const g = s.E;
+    if (E <= g[0]) return s.xs[0];
+    let i = 0;
+    while (i < g.length - 2 && g[i + 1] <= E) i++;
+    const f = (E - g[i]) / (g[i + 1] - g[i]);
+    return s.xs[i] + f * (s.xs[i + 1] - s.xs[i]);
+  }
+
   /** Inverse CDF μ(ξ) of the elastic CM cosine at energy E. */
   elasticInverse(E: number): (xi: number) => number {
     const { E: g, mu, xi: n } = this.table.elasticMu;
@@ -108,8 +198,11 @@ export class Nuclide {
     const x1 = t.E[i + 1];
     const f = Math.min(1, Math.max(0, (E - x0) / (x1 - x0)));
     const L = (y: number[]) => y[i] + f * (y[i + 1] - y[i]);
+    // below the S(α,β) limit, bound thermal scattering replaces free-atom elastic scattering
+    const thermal = this.sabXs(E);
     const p = {
-      elastic: L(t.elastic),
+      elastic: thermal > 0 ? 0 : L(t.elastic),
+      thermal,
       inelastic: L(t.inelastic),
       n2n: L(t.n2n),
       n3n: L(t.n3n),
@@ -211,6 +304,7 @@ export type NStepRecord = Base &
         dir: Vec3;
         fromStack: boolean;
       }
+    | { kind: 'sab'; E: number; table: string; sample: SabSample; Ein: [number, number] }
     | { kind: 'target'; A: number; kT: number; E: number; vt: number; Et: number; muNT: number; tries: number; nuclideIndex: number }
     | {
         kind: 'elasticGas';
@@ -332,6 +426,7 @@ type Phase =
   | 'azimuth'
   | 'target'
   | 'elasticGas'
+  | 'sab'
   | 'inelastic'
   | 'nxn'
   | 'fission'
@@ -485,6 +580,7 @@ export class PowerIteration implements Engine<NStepRecord> {
       case 'birth':
         return this.stack.length > 0 ? 0 : this.isFixedSource ? 2 : 3;
       case 'elasticGas':
+      case 'sab':
         return 2;
       case 'target':
         return 4;
@@ -698,7 +794,7 @@ export class PowerIteration implements Engine<NStepRecord> {
         n.track.uncollided = false;
         n.track.collisions.push({ pos: { ...n.pos }, kind: chosen });
         const gas = chosen === 'elastic' && pb.freeGas && n.E < 400 * pb.freeGas.kT;
-        this.phase = chosen === 'n2n' || chosen === 'n3n' ? 'nxn' : gas ? 'target' : chosen;
+        this.phase = chosen === 'n2n' || chosen === 'n3n' ? 'nxn' : chosen === 'thermal' ? 'sab' : gas ? 'target' : chosen;
         return { kind: 'reaction', E: n.E, nuclide: nucl.id, nuclideIndex: this.nuc, xs, probabilities, chosen, ...base() };
       }
 
@@ -714,6 +810,18 @@ export class PowerIteration implements Engine<NStepRecord> {
         this.setEnergy(Enew);
         this.phase = 'azimuth';
         return { kind: 'elastic', A, E, muCm, muLab: this.muLab, Enew, model: pb.elastic, nuclideIndex: this.nuc, ...base() };
+      }
+
+      case 'sab': {
+        // thermal scattering law: ACE-style conditional sampling of E' then μ
+        const n = this.neutron!;
+        const sab = pb.components[this.nuc].nuclide.sab!;
+        const E = n.E;
+        const sample = sampleSab(sab, E, rng.next(), rng.next());
+        this.muLab = sample.mu;
+        this.setEnergy(sample.Enew);
+        this.phase = 'azimuth';
+        return { kind: 'sab', E, table: sab.id, sample, Ein: [sab.E[sample.i], sab.E[sample.i + 1]], ...base() };
       }
 
       case 'target': {

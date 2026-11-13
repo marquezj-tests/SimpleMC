@@ -22,6 +22,7 @@ const light = {
     cutoff: '#52514e',
     // neutrons
     elastic: '#2a78d6',
+    thermal: '#6250d6',
     inelastic: '#eb6834',
     n2n: '#eda100',
     n3n: '#e87ba4',
@@ -50,6 +51,7 @@ const dark: typeof light = {
     pairElectron: '#d55181',
     cutoff: '#c3c2b7',
     elastic: '#3987e5',
+    thermal: '#9085e9',
     inelastic: '#d95926',
     n2n: '#c98500',
     n3n: '#d55181',

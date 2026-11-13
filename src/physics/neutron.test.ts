@@ -3,7 +3,7 @@ import U235 from '../data/neutron/U235.json';
 import U238 from '../data/neutron/U238.json';
 import reference from '../data/neutron/reference.json';
 import { godivaExample, buildGodiva } from '../examples/godiva';
-import { NREACTIONS, Nuclide, sixFactors, type NuclideTable } from './neutron';
+import { NREACTIONS, Nuclide, sampleSab, sabWeights, sixFactors, type NuclideTable, type SabTable } from './neutron';
 
 const data = { U235: new Nuclide(U235 as NuclideTable), U238: new Nuclide(U238 as NuclideTable) };
 const godiva = (over: Record<string, number | string> = {}, seed = 1) =>
@@ -79,16 +79,25 @@ describe('power iteration', () => {
   });
 });
 
-describe('water sphere, fixed source', () => {
-  const load = async () => {
-    const [h, o] = await Promise.all([import('../data/neutron/H1.json'), import('../data/neutron/O16.json')]);
-    return { H1: new Nuclide(h.default as NuclideTable), O16: new Nuclide(o.default as NuclideTable) };
+const load = async () => {
+  const [h, o, sab] = await Promise.all([
+    import('../data/neutron/H1.json'),
+    import('../data/neutron/O16.json'),
+    import('../data/neutron/HinH2O.json'),
+  ]);
+  return {
+    H1: new Nuclide(h.default as NuclideTable),
+    H1inH2O: new Nuclide(h.default as NuclideTable, sab.default as SabTable),
+    O16: new Nuclide(o.default as NuclideTable),
   };
+};
+
+describe('water sphere, fixed source', () => {
 
   it('free gas gives a thermal peak near 2kT; every neutron leaks or is absorbed', async () => {
     const { buildWater, KT_WATER, waterExample } = await import('../examples/water');
     const data = await load();
-    const pi = buildWater({ ...waterExample.defaults, histories: 1500 }, 3, data);
+    const pi = buildWater({ ...waterExample.defaults, thermal: 'freeGas', histories: 1500 }, 3, data);
     while (!pi.isDone) pi.finishHistory();
     expect(pi.spectrumSources).toBe(1500);
     expect(pi.counts.leaked + pi.counts.captured).toBe(1500);
@@ -126,5 +135,53 @@ describe('water sphere, fixed source', () => {
       } else recs.push(pi.step());
     }
     expect(recs).toEqual(refRecs);
+  });
+});
+
+describe('S(α,β) for H in H2O (ACE discrete form)', () => {
+  const loadSab = async () => (await import('../data/neutron/HinH2O.json')).default as SabTable;
+
+  it('skewed outgoing-energy bins have weights 0.1, 0.4, 1, …, 1, 0.4, 0.1', () => {
+    const w = sabWeights(64, true);
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(w[0] / w[10]).toBeCloseTo(0.1, 12);
+    expect(w[1] / w[10]).toBeCloseTo(0.4, 12);
+    expect(w[63]).toBe(w[0]);
+  });
+
+  it('sampling reproduces the discrete conditional probabilities', async () => {
+    const sab = await loadSab();
+    const E = 0.0253e-6;
+    let mean = 0;
+    let expected = 0;
+    const n = 20000;
+    for (let q = 0; q < n; q++) mean += sampleSab(sab, E, (q + 0.5) / n, 0.5).Enew / n;
+    const s = sampleSab(sab, E, 0.5, 0.5);
+    s.eOut.forEach((e, j) => (expected += e * s.weights[j]));
+    expect(mean / expected).toBeCloseTo(1, 3);
+    // cosines are equiprobable: 16 bins
+    expect(sampleSab(sab, E, 0.5, 0.999).k).toBe(15);
+    expect(sampleSab(sab, E, 0.5, 0.001).k).toBe(0);
+  });
+
+  it('bound hydrogen replaces elastic scattering below 4.46 eV only', async () => {
+    const sab = await loadSab();
+    const H = new Nuclide(U235 as NuclideTable, null); // any nuclide without table
+    expect(H.xs(1e-8).thermal).toBe(0);
+    const h1 = (await import('../data/neutron/H1.json')).default as NuclideTable;
+    const bound = new Nuclide(h1, sab);
+    expect(bound.xs(1e-8).elastic).toBe(0);
+    expect(bound.xs(1e-8).thermal).toBeGreaterThan(20);
+    expect(bound.xs(1e-5).thermal).toBe(0);
+    expect(bound.xs(1e-5).elastic).toBeGreaterThan(10);
+  });
+
+  it('water sphere leakage agrees with OpenMC (S(α,β): 0.180)', async () => {
+    const { buildWater, waterExample } = await import('../examples/water');
+    const data = await load();
+    const pi = buildWater({ ...waterExample.defaults, histories: 2000 }, 9, data);
+    while (!pi.isDone) pi.finishHistory();
+    const p = pi.counts.leaked / 2000;
+    expect(Math.abs(p - 0.18)).toBeLessThan(4 * Math.sqrt((0.18 * 0.82) / 2000));
   });
 });

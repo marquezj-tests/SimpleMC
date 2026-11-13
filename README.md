@@ -17,7 +17,7 @@ Other features:
 - **Charts:** keff per cycle, the convergence of the fission source and the neutron spectrum.
 - **Reference values:** the result is compared with OpenMC (same data, full physics) and with the benchmark.
 
-**Example 3: neutron point source in a water sphere.** A monoenergetic neutron point source at the centre of a sphere of water (H-1 and O-16, ENDF/B-VII.1 via OpenMC). The track-length estimator gives the neutron spectrum averaged over the sphere, E·φ(E) per unit lethargy with ±1σ. It shows the source line, the 1/E slowing-down plateau and the thermal Maxwellian peak near 2kT. Below 400 kT, collisions use the free-gas model at 293.6 K, and its two extra steps are shown in step-by-step mode: sampling the target velocity, then scattering in the centre-of-mass frame. You can switch to targets at rest to see that without thermal motion there is no equilibrium peak. Radius, source energy and number of histories are adjustable; leakage and absorption fractions are reported.
+**Example 3: neutron point source in a water sphere.** A monoenergetic neutron point source at the centre of a sphere of water (H-1 and O-16, ENDF/B-VII.1 via OpenMC, with the S(α,β) thermal scattering law of hydrogen bound in water). The track-length estimator gives the neutron spectrum averaged over the sphere, E·φ(E) per unit lethargy with ±1σ. It shows the source line, the 1/E slowing-down plateau and the thermal Maxwellian peak near 2kT. Below 4.46 eV, scattering on hydrogen uses the S(α,β) table HH2O.71t, used in ACE form: ξ₁ selects the outgoing energy from p(E′|E), which has 64 bins of which the two at each end carry relative weights 0.1 and 0.4; ξ₂ selects one of the 16 equally probable cosines, p(μ|E,E′). Oxygen, and hydrogen up to 400 kT, use the free-gas model at 293.6 K, with its two steps: sampling the target velocity, then scattering in the centre-of-mass frame. The thermal treatment can be switched to free gas only, or to targets at rest, which shows that without thermal motion there is no equilibrium peak. Validation against OpenMC on the same 20 cm sphere with a 2 MeV source gives leakage of 0.174 here against 0.180 in OpenMC with S(α,β), and 0.242 against 0.244 with free gas. The leakage fractions agree within the statistical uncertainty (about ±0.006). Radius, source energy and number of histories are adjustable; leakage and absorption fractions are reported.
 
 ## Modes
 
@@ -58,7 +58,7 @@ Materials: lead, iron, water and ordinary concrete (NIST composition, ρ = 2.3 g
 | Item | Treatment |
 |---|---|
 | Data | ENDF/B-VII.1, NNDC ACE library at 293.6 K, read and processed with the OpenMC Python API (`scripts/preprocess_openmc.py`): U-235 and U-238 (U-234 counted as U-238), H-1 and O-16 |
-| Thermal motion (water example) | Free-gas target velocity sampling below 400 kT at 293.6 K (no S(α,β)) |
+| Thermal neutrons (water example) | S(α,β) for H in H₂O below 4.46 eV (ENDF/B-VII.1 HH2O.71t, ACE discrete conditional probabilities p(E′\|E), p(μ\|E,E′)); free gas below 400 kT otherwise |
 | Cross sections | Pointwise, linear interpolation; grid thinned to 1% accuracy above 50 keV and 5% below |
 | Elastic | Target at rest. Centre-of-mass angle from the evaluated angular distribution (default), or isotropic in the centre-of-mass frame as an option to show its effect on leakage |
 | Inelastic, (n,2n), (n,3n) | Evaporation spectrum E′ e^(−E′/T), T = 3.2 √(E/A) MeV, isotropic emission |
@@ -89,7 +89,8 @@ The neutron data in `src/data/neutron/` were produced with OpenMC 0.16.0 (from c
 
 ```bash
 # ENDF-B-VII.1-neutron-293.6K.tar.gz from https://www.nndc.bnl.gov/endf-b7.1/aceFiles/
-python scripts/preprocess_openmc.py <dir with the *_293.6K.ace files> <hdf5 output dir>   # U-235, U-238, H-1, O-16
+# ENDF-B-VII.1-tsl.tar.gz (thermal scattering, contains hh2o.acer) from the same page
+python scripts/preprocess_openmc.py <dir with the *_293.6K.ace files and hh2o.acer> <hdf5 output dir>
 python scripts/openmc_reference.py <hdf5 output dir>
 ```
 
@@ -121,3 +122,9 @@ New examples (point source, multilayer shield, detector response, …) are added
 ENDF/B-VII.1 neutron data: M.B. Chadwick et al., Nuclear Data Sheets 112 (2011) 2887; ACE library from the National Nuclear Data Center (NNDC), Brookhaven National Laboratory. Processed with OpenMC (P.K. Romano et al., Ann. Nucl. Energy 82 (2015) 90). Godiva: ICSBEP Handbook, HEU-MET-FAST-001.
 
 M.J. Berger, J.H. Hubbell, S.M. Seltzer, J. Chang, J.S. Coursey, R. Sukumar, D.S. Zucker and K. Olsen, *XCOM: Photon Cross Sections Database*, NIST Standard Reference Database 8 (XGAM), https://physics.nist.gov/xcom
+
+## License
+
+SimpleMC is licensed under the [Apache License, Version 2.0](LICENSE).
+
+The embedded nuclear data are derived from public databases that have their own terms: NIST XCOM (photon cross sections) and ENDF/B-VII.1 distributed by the NNDC (neutron data and thermal scattering laws).

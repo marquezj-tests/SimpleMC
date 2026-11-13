@@ -9,7 +9,8 @@ Usage (needs OpenMC, e.g. `conda install -c conda-forge openmc=0.16.0`):
     # https://www.nndc.bnl.gov/endf-b7.1/aceFiles/
     python scripts/preprocess_openmc.py <dir with the *_293.6K.ace files> [hdf5_out_dir] [names...]
 
-Default names: U_235 U_238 H_001 O_016.
+Default names: U_235 U_238 H_001 O_016 hh2o.acer (the last one is the
+thermal scattering table of H in H2O, from ENDF-B-VII.1-tsl.tar.gz).
 
 For each nuclide it
   * reads the ACE file with openmc.data.IncidentNeutron.from_ace,
@@ -176,9 +177,46 @@ def process(ace_dir: Path, name: str, h5_dir: Path | None):
     print(f'{nuc.name}: {len(E)} -> {len(keep)} energies' + (f'; Watt a={a:.4f} MeV b={b:.4f} 1/MeV' if fissile else ''))
 
 
+def process_sab(path: Path, out_name: str, h5_dir: Path | None):
+    """Thermal scattering law S(alpha,beta) from an ACE thermal table, kept in
+    ACE form: for each incident energy, equiprobable (or "skewed") outgoing
+    energies and, for each of them, equiprobable scattering cosines."""
+    t = openmc.data.ThermalScattering.from_ace(str(path), name='c_H_in_H2O')
+    if h5_dir:
+        h5_dir.mkdir(parents=True, exist_ok=True)
+        t.export_to_hdf5(str(h5_dir / f'{t.name}.h5'), 'w')
+    T = t.temperatures[0]
+    if t.elastic is not None:
+        raise SystemExit('elastic thermal scattering is not handled')
+    xs = t.inelastic.xs[T]
+    dist = t.inelastic.distribution[T]  # IncoherentInelasticAEDiscrete
+    data = {
+        'id': t.name,
+        'nuclides': t.nuclides,
+        'temperature': T,
+        'kT': float(t.kTs[0]) / 1e6,
+        'Emax': float(t.energy_max) / 1e6,
+        'source': 'ENDF/B-VII.1 thermal scattering (NNDC ACE ' + path.name + '), processed with OpenMC ' + openmc.__version__,
+        'units': {'E': 'MeV', 'xs': 'barn'},
+        'E': [float(f'{e / 1e6:.6g}') for e in xs.x],
+        'xs': sig(xs.y, 6),
+        'skewed': bool(dist.skewed),
+        # outgoing energies E'[i][j] (MeV) and cosines mu[i][j][k]
+        'Eout': [[float(f'{e / 1e6:.5g}') for e in row] for row in dist.energy_out],
+        'mu': [[[round(float(m), 4) for m in cell] for cell in row] for row in dist.mu_out],
+    }
+    (OUT / f'{out_name}.json').write_text(json.dumps(data, separators=(',', ':')))
+    print(f'{t.name}: {len(xs.x)} incident energies up to {t.energy_max} eV, '
+          f'{len(dist.energy_out[0])} outgoing energies, {len(dist.mu_out[0][0])} cosines, skewed={dist.skewed}')
+
+
 if __name__ == '__main__':
     ace_dir = Path(sys.argv[1])
     h5 = Path(sys.argv[2]) if len(sys.argv) > 2 else None
-    names = sys.argv[3:] or ['U_235', 'U_238', 'H_001', 'O_016']
+    names = sys.argv[3:] or ['U_235', 'U_238', 'H_001', 'O_016', 'hh2o.acer']
     for n in names:
-        process(ace_dir, n, h5)
+        if n.endswith('.acer'):
+            # thermal scattering table (from ENDF-B-VII.1-tsl.tar.gz)
+            process_sab(ace_dir / n, 'HinH2O', h5)
+        else:
+            process(ace_dir, n, h5)

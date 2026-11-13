@@ -9,6 +9,7 @@ const en = {
     energy: 'Source energy',
     histories: 'Histories to run',
     thermal: 'Thermal motion of the nuclei',
+    sab: 'S(α,β) for H in H₂O, free gas for O',
     freeGas: 'Free gas at 293.6 K',
     atRest: 'Targets at rest (no thermal motion)',
     elastic: 'Elastic angular distribution',
@@ -31,7 +32,7 @@ const en = {
   about: [
     'A point source of neutrons of energy E₀ sits at the centre of a sphere of water (ρ = 1 g/cm³). Each neutron is followed collision by collision until it is absorbed or leaks out of the sphere.',
     'Data: ENDF/B-VII.1 neutron library of the NNDC (ACE, 293.6 K) for H-1 and O-16, processed with the OpenMC Python API. Elastic scattering uses the evaluated angular distributions; inelastic scattering on oxygen uses the simplified evaporation model of the Godiva example.',
-    'Thermal motion: below 400 kT (≈ 10 eV) the target velocity is sampled from the free-gas model at 293.6 K, so neutrons can gain energy and reach a Maxwellian-like equilibrium peaked near 2kT ≈ 0.05 eV in E·φ(E). Chemical binding of hydrogen in the water molecule (S(α,β)) is not included. With "targets at rest" there is no equilibrium: neutrons keep losing energy until they are absorbed.',
+    'Thermal neutrons: by default hydrogen uses the thermal scattering law S(α,β) of H bound in H₂O (ENDF/B-VII.1, NNDC ACE table HH2O.71t at 293.6 K, processed with OpenMC) below 4.46 eV. The table is used in ACE form: for each incident energy, discrete outgoing energies with their probabilities p(E′|E) and, for each of them, equiprobable cosines p(μ|E,E′). Oxygen, and hydrogen between 4.46 eV and 400 kT ≈ 10 eV, use the free-gas model. The bound hydrogen behaves as a heavier, vibrating target: the thermal spectrum is harder than with the free-gas model. With "targets at rest" there is no equilibrium: neutrons keep losing energy until they are absorbed.',
     'The spectrum is the track-length estimator: in each energy bin, the total length travelled by neutrons divided by the number of source neutrons, the sphere volume and the lethargy width of the bin. Its uncertainty comes from the spread of the per-history scores.',
   ],
 };
@@ -47,6 +48,7 @@ const es: Text = {
     energy: 'Energía de la fuente',
     histories: 'Historias a simular',
     thermal: 'Movimiento térmico de los núcleos',
+    sab: 'S(α,β) para H en H₂O, gas libre para O',
     freeGas: 'Gas libre a 293,6 K',
     atRest: 'Blancos en reposo (sin movimiento térmico)',
     elastic: 'Distribución angular elástica',
@@ -69,7 +71,7 @@ const es: Text = {
   about: [
     'Una fuente puntual de neutrones de energía E₀ está en el centro de una esfera de agua (ρ = 1 g/cm³). Cada neutrón se sigue colisión a colisión hasta que es absorbido o fuga de la esfera.',
     'Datos: biblioteca neutrónica ENDF/B-VII.1 del NNDC (ACE, 293,6 K) para H-1 y O-16, procesada con la API de Python de OpenMC. La dispersión elástica usa las distribuciones angulares evaluadas; la inelástica en oxígeno usa el modelo simplificado de evaporación del ejemplo Godiva.',
-    'Movimiento térmico: por debajo de 400 kT (≈ 10 eV) la velocidad del blanco se muestrea con el modelo de gas libre a 293,6 K, de modo que los neutrones pueden ganar energía y alcanzan un equilibrio casi maxwelliano con máximo cerca de 2kT ≈ 0,05 eV en E·φ(E). No se incluye la ligadura química del hidrógeno en la molécula de agua (S(α,β)). Con «blancos en reposo» no hay equilibrio: los neutrones siguen perdiendo energía hasta ser absorbidos.',
+    'Neutrones térmicos: por defecto el hidrógeno usa la ley de dispersión térmica S(α,β) del H ligado en H₂O (ENDF/B-VII.1, tabla ACE HH2O.71t del NNDC a 293,6 K, procesada con OpenMC) por debajo de 4,46 eV. La tabla se usa en formato ACE: para cada energía incidente, energías de salida discretas con sus probabilidades p(E′|E) y, para cada una, cosenos equiprobables p(μ|E,E′). El oxígeno, y el hidrógeno entre 4,46 eV y 400 kT ≈ 10 eV, usan el modelo de gas libre. El hidrógeno ligado se comporta como un blanco más pesado que vibra: el espectro térmico es más duro que con el gas libre. Con «blancos en reposo» no hay equilibrio: los neutrones siguen perdiendo energía hasta ser absorbidos.',
     'El espectro es el estimador de longitud de traza: en cada intervalo de energía, la longitud total recorrida por los neutrones dividida por el número de neutrones de la fuente, el volumen de la esfera y el ancho en letargia del intervalo. Su incertidumbre se obtiene de la dispersión de las puntuaciones por historia.',
   ],
 };

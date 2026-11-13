@@ -22,8 +22,10 @@ function curve(nuc: Nuclide, key: 'total' | (typeof NREACTIONS)[number]): [numbe
   const id = `${nuc.id}:${key}`;
   const hit = decimated.get(id);
   if (hit) return hit;
-  const { E } = nuc.table;
-  const y = nuc.table[key];
+  // S(α,β) cross section comes from the thermal table (below its limit)
+  const sab = key === 'thermal' ? nuc.sab : null;
+  const E = sab ? sab.E : nuc.table.E;
+  const y = sab ? sab.xs : key === 'thermal' ? [] : nuc.table[key];
   const bins = 500;
   const lo = Math.log10(1e-11);
   const hi = Math.log10(20);
@@ -90,6 +92,22 @@ function XsPlot({
       )}
     />
   );
+}
+
+/** Reactions that exist for this nuclide (S(α,β) only with a thermal table). */
+const reactionsOf = (nuc: Nuclide) => NREACTIONS.filter((rx) => rx !== 'thermal' || nuc.sab);
+
+/** Discrete CDF drawn as a staircase, for the ACE thermal tables (values are increasing). */
+function discreteCdf(values: number[], weights: number[]) {
+  const mu: number[] = [];
+  const F: number[] = [];
+  let cum = 0;
+  for (let i = 0; i < values.length; i++) {
+    mu.push(values[i], values[i]);
+    F.push(cum, cum + weights[i]);
+    cum += weights[i];
+  }
+  return { mu: Float64Array.from(mu), F: Float64Array.from(F), pdf: new Float64Array(mu.length) };
 }
 
 function LegendRow({ items }: { items: { color: string; label: string }[] }) {
@@ -254,10 +272,10 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
             E={r.E}
             lang={lang}
             c={c}
-            series={NREACTIONS.map((rx) => ({ id: rx, label: rx, color: c.reaction[rx], points: curve(nuc, rx), width: 1.5 }))}
-            markers={NREACTIONS.map((rx) => ({ y: r.xs[rx], color: c.reaction[rx] }))}
+            series={reactionsOf(nuc).map((rx) => ({ id: rx, label: rx, color: c.reaction[rx], points: curve(nuc, rx), width: 1.5 }))}
+            markers={reactionsOf(nuc).map((rx) => ({ y: r.xs[rx], color: c.reaction[rx] }))}
           />
-          <LegendRow items={NREACTIONS.map((rx) => ({ color: c.reaction[rx], label: `${T.reactions[rx]} (${nuc.id})` }))} />
+          <LegendRow items={reactionsOf(nuc).map((rx) => ({ color: c.reaction[rx], label: `${T.reactions[rx]} (${nuc.id})` }))} />
           <ProbabilityBar
             items={r.probabilities.map((p) => ({ key: p.reaction, label: T.reactions[p.reaction], color: c.reaction[p.reaction], p: p.p, cum: p.cum }))}
             xi={xiv()}
@@ -268,7 +286,7 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
       );
       rows = (
         <>
-          {r.probabilities.map((p) => (
+          {r.probabilities.filter((p) => reactionsOf(nuc).includes(p.reaction)).map((p) => (
             <Row
               key={p.reaction}
               k={p.reaction === r.chosen ? <b>{T.reactions[p.reaction]}</b> : T.reactions[p.reaction]}
@@ -318,6 +336,56 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
           <Row k={r.model === 'tabulated' ? 'μ_cm = F⁻¹(ξ)' : 'μ_cm = 2ξ − 1'} v={r.muCm.toFixed(4)} />
           <Row k="E′ = E (A² + 2Aμ_cm + 1)/(A + 1)²" v={`${fmtE(r.E)} → ${fmtE(r.Enew)}`} />
           <Row k="μ_lab = (1 + Aμ_cm)/√(A² + 2Aμ_cm + 1)" v={`${r.muLab.toFixed(4)} (θ_lab = ${deg(Math.acos(r.muLab)).toFixed(1)}°)`} />
+        </>
+      );
+      break;
+    }
+    case 'sab': {
+      explanation = T.explain.sab;
+      const sm = r.sample;
+      const eMin = Math.min(...sm.eOut);
+      const eMax = Math.max(...sm.eOut);
+      visual = (
+        <>
+          <CdfPlot
+            cdf={discreteCdf(
+              sm.eOut.map((e) => e * 1e6),
+              sm.weights,
+            )}
+            xi={xiv(0)}
+            value={sm.Enew * 1e6}
+            color={c.reaction.thermal}
+            xLabel={T.rows.sabAxisE}
+            yLabel={T.rows.sabAxisPE}
+            xMin={eMin * 1e6}
+            xMax={eMax * 1e6}
+            format={(x) => `E′ = ${fmtE(x * 1e-6)}`}
+            ariaLabel="sab-energy-cdf"
+          />
+          <div className="visual-row">
+            <CdfPlot
+              cdf={discreteCdf(sm.muOut, sm.muOut.map(() => 1 / sm.muOut.length))}
+              xi={xiv(1)}
+              value={sm.mu}
+              color={c.reaction.thermal}
+              xLabel={T.rows.sabAxisMu}
+              yLabel={T.rows.sabAxisPMu}
+              xMin={-1}
+              xMax={1}
+              format={(x) => `μ = ${x.toFixed(4)}`}
+              ariaLabel="sab-angle-cdf"
+            />
+            <ScatterDiagram cosTheta={sm.mu} color={c.reaction.thermal} />
+          </div>
+        </>
+      );
+      rows = (
+        <>
+          <Row k={T.rows.E} v={fmtE(r.E)} />
+          <Row k={T.rows.sabInterval} v={`${fmtE(r.Ein[0])} – ${fmtE(r.Ein[1])} (f = ${sm.f.toFixed(3)})`} />
+          <Row k={`ξ₁ → ${T.rows.sabBin(sm.j, sm.eOut.length)}`} v={`p = ${sm.weights[sm.j].toFixed(4)}`} />
+          <Row k="E′" v={`${fmtE(r.E)} → ${fmtE(sm.Enew)}${sm.Enew > r.E ? ' ↑' : ''}`} />
+          <Row k={`ξ₂ → ${T.rows.sabMu(sm.k, sm.muOut.length)}`} v={`μ = ${sm.mu.toFixed(4)} (θ = ${deg(Math.acos(sm.mu)).toFixed(1)}°)`} />
         </>
       );
       break;

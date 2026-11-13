@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { Nuclide, PowerIteration, logBins, type NStepRecord, type NuclideTable } from '../physics/neutron';
+import { Nuclide, PowerIteration, logBins, type NStepRecord, type NuclideTable, type SabTable } from '../physics/neutron';
 import type { Dict } from '../i18n';
 import { GODIVA_TEXT } from './godivaText';
 import { godivaStepContent } from './godivaSteps';
@@ -10,15 +10,30 @@ import type { Example, ParamValues, Simulation } from './types';
 /** kT at 293.6 K, the temperature of the data (MeV). */
 export const KT_WATER = 8.617333e-11 * 293.6;
 
-let nuclides: { H1: Nuclide; O16: Nuclide } | null = null;
+export interface WaterData {
+  H1: Nuclide;
+  /** H-1 with the S(α,β) table of hydrogen bound in water */
+  H1inH2O: Nuclide;
+  O16: Nuclide;
+}
+
+let nuclides: WaterData | null = null;
 async function loadNuclides() {
   if (nuclides) return;
-  const [h, o] = await Promise.all([import('../data/neutron/H1.json'), import('../data/neutron/O16.json')]);
-  nuclides = { H1: new Nuclide(h.default as NuclideTable), O16: new Nuclide(o.default as NuclideTable) };
+  const [h, o, sab] = await Promise.all([
+    import('../data/neutron/H1.json'),
+    import('../data/neutron/O16.json'),
+    import('../data/neutron/HinH2O.json'),
+  ]);
+  nuclides = {
+    H1: new Nuclide(h.default as NuclideTable),
+    H1inH2O: new Nuclide(h.default as NuclideTable, sab.default as SabTable),
+    O16: new Nuclide(o.default as NuclideTable),
+  };
 }
 
 /** Build the fixed-source engine (also used by the tests). */
-export function buildWater(v: ParamValues, seed: number, data = nuclides): PowerIteration {
+export function buildWater(v: ParamValues, seed: number, data: WaterData | null = nuclides): PowerIteration {
   if (!data) throw new Error('nuclear data not loaded');
   const NA = 0.602214076; // Avogadro / 1e24
   const Nmol = (1.0 * NA) / 18.0153; // water molecules per barn·cm at 1 g/cm³
@@ -26,7 +41,7 @@ export function buildWater(v: ParamValues, seed: number, data = nuclides): Power
     {
       radius: Number(v.radius),
       components: [
-        { nuclide: data.H1, N: 2 * Nmol },
+        { nuclide: v.thermal === 'sab' ? data.H1inH2O : data.H1, N: 2 * Nmol },
         { nuclide: data.O16, N: Nmol },
       ],
       neutronsPerCycle: Number(v.histories),
@@ -36,7 +51,8 @@ export function buildWater(v: ParamValues, seed: number, data = nuclides): Power
       cutoff: 0.625e-6,
       elastic: v.elastic as 'isotropic' | 'tabulated',
       source: { kind: 'mono', E: Number(v.energy) },
-      freeGas: v.thermal === 'freeGas' ? { kT: KT_WATER } : undefined,
+      // free gas for oxygen (and for hydrogen above the S(α,β) table)
+      freeGas: v.thermal !== 'atRest' ? { kT: KT_WATER } : undefined,
       spectrumBins: logBins(1e-11, 20, 124),
     },
     seed,
@@ -84,6 +100,7 @@ export const waterExample: Example = {
       type: 'select',
       label: L((t) => t.params.thermal),
       options: [
+        { value: 'sab', label: L((t) => t.params.sab) },
         { value: 'freeGas', label: L((t) => t.params.freeGas) },
         { value: 'atRest', label: L((t) => t.params.atRest) },
       ],
@@ -98,12 +115,12 @@ export const waterExample: Example = {
       ],
     },
   ],
-  defaults: { radius: 20, energy: 2, histories: 2000, thermal: 'freeGas', elastic: 'tabulated' },
+  defaults: { radius: 20, energy: 2, histories: 2000, thermal: 'sab', elastic: 'tabulated' },
   load: loadNuclides,
   create(v, seed): Simulation {
     const engine = buildWater(v, seed);
     const radius = Number(v.radius);
-    const kT = v.thermal === 'freeGas' ? KT_WATER : null;
+    const kT = v.thermal !== 'atRest' ? KT_WATER : null;
     const Panels = ({ version }: { version: number }) => createElement(WaterPanels, { engine, kT, version });
     const frac = (k: number) => {
       const n = engine.spectrumSources;
@@ -135,7 +152,7 @@ export const waterExample: Example = {
             { color: c.ntrack.captured, label: G.legendCaptured },
             { color: c.current, label: G.legendCurrent },
           ],
-          markers: (['elastic', 'inelastic', 'capture'] as const).map((r) => ({ color: c.reaction[r], label: G.reactions[r] })),
+          markers: (['elastic', 'thermal', 'inelastic', 'capture'] as const).map((r) => ({ color: c.reaction[r], label: G.reactions[r] })),
         };
       },
       stepContent: (rec, _t, lang, c) => godivaStepContent(rec as NStepRecord | null, engine, lang, c),

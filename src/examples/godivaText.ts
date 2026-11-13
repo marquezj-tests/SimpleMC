@@ -49,6 +49,7 @@ const en = {
   legendCurrent: 'current neutron',
   reactions: {
     elastic: 'Elastic',
+    thermal: 'Thermal scattering S(α,β)',
     inelastic: 'Inelastic',
     n2n: '(n,2n)',
     n3n: '(n,3n)',
@@ -94,6 +95,7 @@ const en = {
     elastic: '7 · Elastic scattering: angle and new energy',
     target: '7 · Free gas: sample the velocity of the target nucleus',
     elasticGas: '8 · Elastic scattering on a moving target',
+    sab: '7 · Thermal scattering law S(α,β): outgoing energy and angle',
     azimuth: '8 · Azimuthal angle φ and new direction',
     inelastic: '7 · Inelastic scattering: new energy and direction',
     nxn: '7 · (n,xn) reaction: new neutrons',
@@ -128,6 +130,8 @@ const en = {
       'Below 400 kT the thermal motion of the nuclei matters: the neutron can gain energy. In the free-gas model the target velocity follows a Maxwellian at temperature T, weighted by the relative speed |v_n − v_t| (faster relative motion means more collisions). It is sampled by rejection, as in OpenMC and MCNP; the number of tries varies, so several ξ are used.',
     elasticGas:
       'The collision is computed in the centre-of-mass frame: v_cm = (v_n + A v_t)/(A + 1). There the neutron keeps its speed and its direction is rotated by μ_cm (ξ₁) and φ = 2πξ₂; going back to the lab gives E′, which can be larger than E when the target was moving fast.',
+    sab:
+      'Hydrogen bound in water: below 4.46 eV scattering is described by the thermal scattering law S(α,β) instead of free-atom elastic scattering. In ACE form the table gives, for each incident energy, 64 outgoing energies (equiprobable except the two at each end, with relative weights 0.1 and 0.4) and, for each outgoing energy, 16 equiprobable cosines. ξ₁ selects the outgoing energy from p(E′|E); ξ₂ selects the cosine from p(μ|E,E′). Both are interpolated linearly between the two tabulated incident energies around E.',
     birthMono: (E: string) =>
       `The point source at the centre emits a neutron of energy E₀ = ${E} in an isotropic direction: cos θ = 2ξ₁ − 1, φ = 2πξ₂.`,
     inelastic:
@@ -165,6 +169,13 @@ const en = {
     T: 'temperature T',
     tries: 'tries (rejection)',
     kT: 'kT',
+    sabInterval: 'incident energies of the table',
+    sabBin: (j: number, n: number) => `outgoing-energy bin ${j + 1} of ${n}`,
+    sabMu: (k: number, n: number) => `cosine bin ${k + 1} of ${n}`,
+    sabAxisE: 'outgoing energy E′ (eV)',
+    sabAxisPE: 'cumulative p(E′|E)',
+    sabAxisMu: 'cos θ',
+    sabAxisPMu: 'cumulative p(μ|E,E′)',
     vt: 'target speed / thermal speed √(2kT/A)',
     Et: 'target kinetic energy',
     muNT: 'cos (neutron, target)',
@@ -254,6 +265,7 @@ const es: Text = {
   legendCurrent: 'neutrón actual',
   reactions: {
     elastic: 'Elástica',
+    thermal: 'Dispersión térmica S(α,β)',
     inelastic: 'Inelástica',
     n2n: '(n,2n)',
     n3n: '(n,3n)',
@@ -299,6 +311,7 @@ const es: Text = {
     elastic: '7 · Dispersión elástica: ángulo y nueva energía',
     target: '7 · Gas libre: muestrear la velocidad del núcleo blanco',
     elasticGas: '8 · Dispersión elástica con un blanco en movimiento',
+    sab: '7 · Ley de dispersión térmica S(α,β): energía y ángulo de salida',
     azimuth: '8 · Ángulo azimutal φ y nueva dirección',
     inelastic: '7 · Dispersión inelástica: nueva energía y dirección',
     nxn: '7 · Reacción (n,xn): nuevos neutrones',
@@ -333,6 +346,8 @@ const es: Text = {
       'Por debajo de 400 kT importa el movimiento térmico de los núcleos: el neutrón puede ganar energía. En el modelo de gas libre la velocidad del blanco sigue una maxwelliana a temperatura T, pesada por la velocidad relativa |v_n − v_t| (más velocidad relativa, más colisiones). Se muestrea por rechazo, como en OpenMC y MCNP; el número de intentos varía, así que se usan varios ξ.',
     elasticGas:
       'La colisión se calcula en el sistema centro de masas: v_cm = (v_n + A v_t)/(A + 1). Allí el neutrón conserva su rapidez y su dirección se rota μ_cm (ξ₁) y φ = 2πξ₂; al volver al laboratorio se obtiene E′, que puede ser mayor que E si el blanco se movía rápido.',
+    sab:
+      'Hidrógeno ligado en agua: por debajo de 4,46 eV la dispersión se describe con la ley de dispersión térmica S(α,β) en lugar de la dispersión elástica de átomo libre. En formato ACE la tabla da, para cada energía incidente, 64 energías de salida (equiprobables salvo las dos de cada extremo, con pesos relativos 0,1 y 0,4) y, para cada energía de salida, 16 cosenos equiprobables. ξ₁ elige la energía de salida según p(E′|E); ξ₂ elige el coseno según p(μ|E,E′). Ambos se interpolan linealmente entre las dos energías incidentes tabuladas que rodean a E.',
     birthMono: (E: string) =>
       `La fuente puntual en el centro emite un neutrón de energía E₀ = ${E} en dirección isótropa: cos θ = 2ξ₁ − 1, φ = 2πξ₂.`,
     inelastic:
@@ -370,6 +385,13 @@ const es: Text = {
     T: 'temperatura T',
     tries: 'intentos (rechazo)',
     kT: 'kT',
+    sabInterval: 'energías incidentes de la tabla',
+    sabBin: (j: number, n: number) => `intervalo de energía de salida ${j + 1} de ${n}`,
+    sabMu: (k: number, n: number) => `intervalo de coseno ${k + 1} de ${n}`,
+    sabAxisE: 'energía de salida E′ (eV)',
+    sabAxisPE: 'p(E′|E) acumulada',
+    sabAxisMu: 'cos θ',
+    sabAxisPMu: 'p(μ|E,E′) acumulada',
     vt: 'rapidez del blanco / rapidez térmica √(2kT/A)',
     Et: 'energía cinética del blanco',
     muNT: 'cos (neutrón, blanco)',
