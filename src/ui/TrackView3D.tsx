@@ -1,25 +1,26 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Track, Transport } from '../physics/transport';
+import type { Engine, Track } from '../physics/engine';
+import type { Scene, Simulation } from '../examples/types';
 import { useColors } from './colors';
-import { trackColor } from './TrackView2D';
+import { sceneMapping } from './sceneMap';
 
 interface Props {
-  transport: Transport;
+  engine: Engine;
+  sim: Simulation;
+  scene: Scene;
   version: number;
-  thickness: number;
   showCurrent: boolean;
   /** Called when WebGL is unavailable or the context is lost. */
   onFail: (reason: 'unsupported' | 'lost') => void;
 }
 
 /**
- * Interactive 3D view (drag to rotate, scroll to zoom). Lengths are divided
- * by the slab thickness. Screen axes: depth z → X (left to right),
- * x → Y (up), y → Z.
+ * Interactive 3D view (drag to rotate, scroll to zoom), see sceneMapping()
+ * for the coordinates.
  */
-export function TrackView3D({ transport, version, thickness, showCurrent, onFail }: Props) {
+export function TrackView3D({ engine, sim, scene, version, showCurrent, onFail }: Props) {
   const c = useColors();
   const box = useRef<HTMLDivElement>(null);
   const three = useRef<{
@@ -86,23 +87,28 @@ export function TrackView3D({ transport, version, thickness, showCurrent, onFail
     };
   }, []);
 
-  // slab and colours
+  // geometry and colours
   useEffect(() => {
     const s = three.current;
     if (!s) return;
     s.scene.background = new THREE.Color(c.surface);
     s.slab.clear();
-    const geo = new THREE.BoxGeometry(1, 1.6, 1.6);
-    const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshBasicMaterial({ color: c.slab, transparent: true, opacity: 0.35, depthWrite: false }),
-    );
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: c.slabEdge }));
-    s.slab.add(mesh, edges);
-    // beam direction arrow
-    const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1.3, 0, 0), 0.7, c.muted, 0.12, 0.07);
-    s.slab.add(arrow);
-  }, [c]);
+    const fill = new THREE.MeshBasicMaterial({ color: c.slab, transparent: true, opacity: 0.3, depthWrite: false });
+    if (scene.kind === 'slab') {
+      const geo = new THREE.BoxGeometry(1, 1.6, 1.6);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: c.slabEdge }));
+      // beam direction arrow
+      const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1.3, 0, 0), 0.7, c.muted, 0.12, 0.07);
+      s.slab.add(new THREE.Mesh(geo, fill), edges, arrow);
+    } else {
+      const geo = new THREE.SphereGeometry(1, 32, 16);
+      const wire = new THREE.LineSegments(
+        new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 16, 8)),
+        new THREE.LineBasicMaterial({ color: c.slabEdge, transparent: true, opacity: 0.35 }),
+      );
+      s.slab.add(new THREE.Mesh(geo, fill), wire);
+    }
+  }, [c, scene]);
 
   // tracks
   useEffect(() => {
@@ -114,8 +120,7 @@ export function TrackView3D({ transport, version, thickness, showCurrent, onFail
       (o.material as THREE.Material).dispose();
     }
     s.dynamic.clear();
-    const T = thickness;
-    const map = (p: { x: number; y: number; z: number }) => [p.z / T - 0.5, p.x / T, p.y / T];
+    const { map, exitLength: L } = sceneMapping(scene);
 
     const linePos: number[] = [];
     const lineCol: number[] = [];
@@ -128,7 +133,6 @@ export function TrackView3D({ transport, version, thickness, showCurrent, onFail
       const pts = tr.points.map(map);
       if (tr.exitDir) {
         const last = tr.points[tr.points.length - 1];
-        const L = 1.2 * T;
         pts.push(map({ x: last.x + L * tr.exitDir.x, y: last.y + L * tr.exitDir.y, z: last.z + L * tr.exitDir.z }));
       }
       for (let i = 1; i < pts.length; i++) {
@@ -137,12 +141,12 @@ export function TrackView3D({ transport, version, thickness, showCurrent, onFail
       }
       for (const cl of tr.collisions) {
         ptPos.push(...map(cl.pos));
-        col.set(c.reaction[cl.kind]);
+        col.set(sim.markerColor(cl.kind, c));
         ptCol.push(col.r, col.g, col.b);
       }
     };
-    for (const tr of transport.tracks) add(tr, trackColor(tr, c));
-    const cur = transport.currentTrack;
+    for (const tr of engine.tracks) add(tr, sim.trackStyle(tr, c).color);
+    const cur = engine.currentTrack;
     if (showCurrent && cur) add(cur, c.current);
 
     if (linePos.length) {
@@ -159,7 +163,7 @@ export function TrackView3D({ transport, version, thickness, showCurrent, onFail
       g.setAttribute('color', new THREE.Float32BufferAttribute(ptCol, 3));
       s.dynamic.add(new THREE.Points(g, new THREE.PointsMaterial({ vertexColors: true, size: 6, sizeAttenuation: false })));
     }
-  }, [version, thickness, c, showCurrent, transport]);
+  }, [version, scene, c, showCurrent, engine, sim]);
 
-  return <div ref={box} className="view3d" aria-label="3D view of photon tracks" />;
+  return <div ref={box} className="view3d" aria-label="3D view of particle tracks" />;
 }

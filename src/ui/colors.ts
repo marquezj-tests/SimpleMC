@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { CollisionKind } from '../physics/transport';
 
 /**
  * Colour roles. Reaction colours follow a fixed categorical order (validated
@@ -21,8 +20,17 @@ const light = {
     pairNuclear: '#eda100',
     pairElectron: '#e87ba4',
     cutoff: '#52514e',
-  } as Record<CollisionKind, string>,
+    // neutrons
+    elastic: '#2a78d6',
+    inelastic: '#eb6834',
+    n2n: '#eda100',
+    n3n: '#e87ba4',
+    fission: '#e34948',
+    capture: '#1baf7a',
+  } as Record<string, string>,
   track: { uncollided: '#6250d6', scattered: '#008300', reflected: '#e34948', absorbed: '#8a8984' },
+  /** neutron fates */
+  ntrack: { leaked: '#6250d6', fission: '#e34948', captured: '#1baf7a', nxn: '#eda100' } as Record<string, string>,
   current: '#0b0b0b',
 };
 
@@ -41,8 +49,15 @@ const dark: typeof light = {
     pairNuclear: '#c98500',
     pairElectron: '#d55181',
     cutoff: '#c3c2b7',
+    elastic: '#3987e5',
+    inelastic: '#d95926',
+    n2n: '#c98500',
+    n3n: '#d55181',
+    fission: '#e66767',
+    capture: '#199e70',
   },
   track: { uncollided: '#9085e9', scattered: '#2fa52f', reflected: '#e66767', absorbed: '#8f8e86' },
+  ntrack: { leaked: '#9085e9', fission: '#e66767', captured: '#199e70', nxn: '#c98500' },
   current: '#f0efec',
 };
 

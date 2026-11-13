@@ -1,0 +1,382 @@
+import type { ReactNode } from 'react';
+import { NREACTIONS, type NStepRecord, type Nuclide, type PowerIteration } from '../physics/neutron';
+import { tabulateCdfOn } from '../physics/sampling';
+import type { Lang } from '../i18n';
+import type { Colors } from '../ui/colors';
+import { deg, fmt, fmtE, fmtVec } from '../ui/format';
+import { Row } from '../ui/Kv';
+import { Plot, type Series } from '../ui/Plot';
+import { AzimuthDiagram, CdfPlot, FlightCdfPlot, ProbabilityBar, ScatterDiagram } from '../ui/StepPlots';
+import { GODIVA_TEXT } from './godivaText';
+import type { StepContent } from './types';
+
+/** Nuclide colours in plots (U-235, U-238). */
+export const nuclideColor = (i: number, c: Colors) => (i === 0 ? c.track.uncollided : c.reaction.inelastic);
+
+/**
+ * Reduce a pointwise curve to at most ~2 points per log-energy bin (min and
+ * max), so resonance envelopes stay visible while the SVG stays light.
+ */
+const decimated = new Map<string, [number, number][]>();
+function curve(nuc: Nuclide, key: 'total' | (typeof NREACTIONS)[number]): [number, number][] {
+  const id = `${nuc.id}:${key}`;
+  const hit = decimated.get(id);
+  if (hit) return hit;
+  const { E } = nuc.table;
+  const y = nuc.table[key];
+  const bins = 500;
+  const lo = Math.log10(1e-11);
+  const hi = Math.log10(20);
+  const out: [number, number][] = [];
+  let bin = -1;
+  let iMin = -1;
+  let iMax = -1;
+  const flush = () => {
+    if (iMin < 0) return;
+    const [a, b] = iMin < iMax ? [iMin, iMax] : [iMax, iMin];
+    out.push([E[a], y[a]]);
+    if (b !== a) out.push([E[b], y[b]]);
+  };
+  for (let i = 0; i < E.length; i++) {
+    if (y[i] <= 0) continue;
+    const b = Math.floor(((Math.log10(E[i]) - lo) / (hi - lo)) * bins);
+    if (b !== bin) {
+      flush();
+      bin = b;
+      iMin = iMax = i;
+    } else {
+      if (y[i] < y[iMin]) iMin = i;
+      if (y[i] > y[iMax]) iMax = i;
+    }
+  }
+  flush();
+  decimated.set(id, out);
+  return out;
+}
+
+function XsPlot({
+  series,
+  markers,
+  E,
+  lang,
+  c,
+  aria,
+}: {
+  series: Series[];
+  markers: { y: number; color: string }[];
+  E: number;
+  lang: Lang;
+  c: Colors;
+  aria: string;
+}) {
+  const T = GODIVA_TEXT[lang];
+  const ymax = 1e4;
+  const ymin = 1e-3;
+  return (
+    <Plot
+      ariaLabel={aria}
+      x={{ min: 1e-11, max: 20, log: true, label: T.axis.E }}
+      y={{ min: ymin, max: ymax, log: true, label: T.axis.sigma }}
+      series={series}
+      overlay={(sx, sy) => (
+        <g>
+          <line x1={sx(E)} x2={sx(E)} y1={sy(ymin)} y2={sy(ymax)} stroke={c.ink2} strokeDasharray="3 3" />
+          {markers
+            .filter((m) => m.y > ymin)
+            .map((m, i) => (
+              <circle key={i} cx={sx(E)} cy={sy(m.y)} r={5} fill={m.color} stroke={c.surface} strokeWidth={2} />
+            ))}
+        </g>
+      )}
+    />
+  );
+}
+
+function LegendRow({ items }: { items: { color: string; label: string }[] }) {
+  return (
+    <div className="legend-row">
+      {items.map((it) => (
+        <span className="legend-item" key={it.label}>
+          <span className="swatch" style={{ background: it.color }} />
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration, lang: Lang, c: Colors): StepContent {
+  const T = GODIVA_TEXT[lang];
+  const nuclides = engine.problem.components.map((x) => x.nuclide);
+  const xi = r?.xi ?? [];
+  const xiv = (i = 0) => xi[i]?.xi ?? 0;
+
+  if (!r) {
+    return {
+      kicker: T.kicker(engine.cycle, engine.neutronIndex, engine.sourceSize),
+      title: T.titles.start,
+      explanation: T.explain.start,
+    };
+  }
+
+  const n = r.neutron;
+  const kicker =
+    r.kind === 'cycleEnd' || r.kind === 'done'
+      ? `${T.cycle} ${r.cycle}`
+      : T.kicker(r.cycle, r.index, engine.sourceSize) + (n && !n.primary ? ` · ${T.secondary}` : '') + (n ? ` · ${fmtE(n.E)}` : '');
+  let explanation = '';
+  let visual: ReactNode = null;
+  let rows: ReactNode = null;
+  const title = T.titles[r.kind];
+
+  switch (r.kind) {
+    case 'birth': {
+      explanation = r.initial ? T.explain.birthInitial(r.source) : T.explain.birth(r.spectrumOf);
+      visual = (
+        <CdfPlot
+          cdf={r.cdf}
+          xi={xiv(0)}
+          value={r.E}
+          color={c.reaction.fission}
+          xLabel={T.axis.watt}
+          yLabel={T.axis.F}
+          xMin={0}
+          xMax={10}
+          format={(x) => fmtE(x)}
+          ariaLabel="fission-spectrum-cdf"
+        />
+      );
+      rows = (
+        <>
+          <Row k={T.rows.site} v={`${fmtVec(r.neutron!.pos)} cm`} />
+          <Row k={`${T.rows.E} = F⁻¹(ξ₁)`} v={fmtE(r.E)} />
+          <Row k={T.rows.dir} v={fmtVec(r.dir)} />
+        </>
+      );
+      break;
+    }
+    case 'bank':
+      explanation = T.explain.bank;
+      rows = <Row k={T.rows.E} v={fmtE(r.neutron!.E)} />;
+      break;
+    case 'lookup': {
+      explanation = T.explain.lookup;
+      visual = (
+        <>
+          <XsPlot
+            aria="total-xs"
+            E={r.E}
+            lang={lang}
+            c={c}
+            series={nuclides.map((nu, i) => ({ id: nu.id, label: nu.id, color: nuclideColor(i, c), points: curve(nu, 'total'), width: 1.5 }))}
+            markers={r.parts.map((p, i) => ({ y: p.xs.total, color: nuclideColor(i, c) }))}
+          />
+          <LegendRow items={nuclides.map((nu, i) => ({ color: nuclideColor(i, c), label: `σt ${nu.id}` }))} />
+        </>
+      );
+      rows = (
+        <>
+          <Row k={T.rows.E} v={fmtE(r.E)} />
+          {r.parts.map((p, i) => (
+            <Row
+              key={p.id}
+              k={`${p.id}: N σt`}
+              v={`${fmt(p.N, 4)} × ${fmt(p.xs.total, 4)} b = ${fmt(p.N * p.xs.total, 4)} cm⁻¹`}
+              color={nuclideColor(i, c)}
+            />
+          ))}
+          <Row k={T.rows.Sigma} v={`${fmt(r.Sigma, 4)} cm⁻¹`} />
+          <Row k={T.rows.mfp} v={`${fmt(1 / r.Sigma, 4)} cm`} />
+        </>
+      );
+      break;
+    }
+    case 'flight':
+      explanation = T.explain.flight;
+      visual = <FlightCdfPlot mu={r.Sigma} s={r.s} xi={xiv()} distance={r.distance} yLabel={T.axis.sF} />;
+      rows = (
+        <>
+          <Row k={T.rows.s} v={`−ln(${(1 - xiv()).toFixed(4)}) / ${fmt(r.Sigma)} = ${fmt(r.s)} cm`} />
+          <Row k={T.rows.d} v={`${fmt(r.distance)} cm`} />
+          <Row k={r.s < r.distance ? 's < d' : 's ≥ d'} v={r.s < r.distance ? T.rows.collides : T.rows.leaks} />
+        </>
+      );
+      break;
+    case 'move':
+      explanation = r.escaped ? T.explain.moveEscape : T.explain.moveCollide;
+      rows = (
+        <>
+          <Row k={T.rows.from} v={`${fmtVec(r.from)} cm`} />
+          <Row k={T.rows.to} v={`${fmtVec(r.to)} cm`} />
+          <Row k={r.escaped ? '→' : '●'} v={r.escaped ? T.rows.leaks : T.rows.collides} />
+        </>
+      );
+      break;
+    case 'nuclide':
+      explanation = T.explain.nuclide;
+      visual = (
+        <ProbabilityBar
+          items={r.probabilities.map((p, i) => ({ key: p.id, label: p.id, color: nuclideColor(i, c), p: p.p, cum: p.cum }))}
+          xi={xiv()}
+          chosen={r.chosen}
+          axisLabel="Σ Nᵢσt,ᵢ / Σt"
+        />
+      );
+      rows = (
+        <>
+          {r.probabilities.map((p, i) => (
+            <Row key={p.id} k={p.id === r.chosen ? <b>{p.id}</b> : p.id} v={`${p.p.toFixed(4)} · ${p.cum.toFixed(4)}`} color={nuclideColor(i, c)} />
+          ))}
+          <Row k={T.rows.chosen} v={<b>{r.chosen}</b>} />
+        </>
+      );
+      break;
+    case 'reaction': {
+      explanation = T.explain.reaction;
+      const nuc = nuclides[r.nuclideIndex];
+      visual = (
+        <>
+          <XsPlot
+            aria="partial-xs"
+            E={r.E}
+            lang={lang}
+            c={c}
+            series={NREACTIONS.map((rx) => ({ id: rx, label: rx, color: c.reaction[rx], points: curve(nuc, rx), width: 1.5 }))}
+            markers={NREACTIONS.map((rx) => ({ y: r.xs[rx], color: c.reaction[rx] }))}
+          />
+          <LegendRow items={NREACTIONS.map((rx) => ({ color: c.reaction[rx], label: `${T.reactions[rx]} (${nuc.id})` }))} />
+          <ProbabilityBar
+            items={r.probabilities.map((p) => ({ key: p.reaction, label: T.reactions[p.reaction], color: c.reaction[p.reaction], p: p.p, cum: p.cum }))}
+            xi={xiv()}
+            chosen={r.chosen}
+            axisLabel="Σ σₓ / σt"
+          />
+        </>
+      );
+      rows = (
+        <>
+          {r.probabilities.map((p) => (
+            <Row
+              key={p.reaction}
+              k={p.reaction === r.chosen ? <b>{T.reactions[p.reaction]}</b> : T.reactions[p.reaction]}
+              v={`${fmt(r.xs[p.reaction], 4)} b · ${p.p.toFixed(4)} · ${p.cum.toFixed(4)}`}
+              color={c.reaction[p.reaction]}
+            />
+          ))}
+          <Row k={T.rows.chosen} v={<b>{T.reactions[r.chosen]}</b>} />
+        </>
+      );
+      break;
+    }
+    case 'elastic': {
+      explanation = r.model === 'tabulated' ? T.explain.elasticTab : T.explain.elasticIso;
+      const nuc = nuclides[r.nuclideIndex];
+      // CDF of μ_cm at this energy, from the inverse CDF (or uniform)
+      const inv = nuc.elasticInverse(r.E);
+      const grid = Array.from({ length: 201 }, (_, i) => -1 + i / 100);
+      const cdf =
+        r.model === 'tabulated'
+          ? (() => {
+              const xs = Array.from({ length: 401 }, (_, i) => i / 400);
+              const mus = xs.map((x) => inv(x));
+              return { mu: Float64Array.from(mus), F: Float64Array.from(xs), pdf: new Float64Array(xs.length) };
+            })()
+          : tabulateCdfOn(grid, () => 1);
+      visual = (
+        <div className="visual-row">
+          <CdfPlot
+            cdf={cdf}
+            xi={xiv()}
+            value={r.muCm}
+            color={c.reaction.elastic}
+            xLabel={T.axis.mu}
+            yLabel={T.axis.Fmu}
+            xMin={-1}
+            xMax={1}
+            format={(x) => `μ_cm = ${x.toFixed(4)}`}
+            ariaLabel="elastic-angle-cdf"
+          />
+          <ScatterDiagram cosTheta={r.muLab} color={c.reaction.elastic} />
+        </div>
+      );
+      rows = (
+        <>
+          <Row k={T.rows.A} v={r.A.toFixed(3)} />
+          <Row k={r.model === 'tabulated' ? 'μ_cm = F⁻¹(ξ)' : 'μ_cm = 2ξ − 1'} v={r.muCm.toFixed(4)} />
+          <Row k="E′ = E (A² + 2Aμ_cm + 1)/(A + 1)²" v={`${fmtE(r.E)} → ${fmtE(r.Enew)}`} />
+          <Row k="μ_lab = (1 + Aμ_cm)/√(A² + 2Aμ_cm + 1)" v={`${r.muLab.toFixed(4)} (θ_lab = ${deg(Math.acos(r.muLab)).toFixed(1)}°)`} />
+        </>
+      );
+      break;
+    }
+    case 'azimuth':
+      explanation = T.explain.azimuth;
+      visual = <AzimuthDiagram phi={r.phi} />;
+      rows = (
+        <>
+          <Row k={T.rows.phi} v={`${r.phi.toFixed(4)} rad = ${deg(r.phi).toFixed(1)}°`} />
+          <Row k={T.rows.oldDir} v={fmtVec(r.oldDir)} />
+          <Row k={T.rows.newDir} v={fmtVec(r.newDir)} />
+        </>
+      );
+      break;
+    case 'inelastic':
+      explanation = T.explain.inelastic;
+      rows = (
+        <>
+          <Row k="T = 3.2 √(E/A)" v={`${fmtE(r.T)}`} />
+          <Row k="E′ = −T ln(ξ₁ξ₂)" v={`${fmtE(r.E)} → ${fmtE(r.Enew)}`} />
+          <Row k={T.rows.tries} v={r.tries} />
+          <Row k={T.rows.newDir} v={fmtVec(r.newDir)} />
+        </>
+      );
+      break;
+    case 'nxn':
+      explanation = T.explain.nxn;
+      rows = (
+        <>
+          <Row k={T.rows.multiplicity} v={r.multiplicity} />
+          <Row k="T = 3.2 √(E/A)" v={fmtE(r.T)} />
+          <Row k={T.rows.energies} v={r.energies.map((e) => fmtE(e)).join(', ')} />
+        </>
+      );
+      break;
+    case 'fission':
+      explanation = T.explain.fission;
+      rows = (
+        <>
+          <Row k={T.rows.nuclide} v={r.nuclide} />
+          <Row k={T.rows.nu} v={r.nu.toFixed(4)} />
+          <Row k={T.rows.banked} v={`⌊${r.nu.toFixed(4)} + ${xiv().toFixed(4)}⌋ = ${r.banked}`} />
+        </>
+      );
+      break;
+    case 'capture':
+      explanation = T.explain.capture;
+      rows = <Row k={T.rows.nuclide} v={r.nuclide} />;
+      break;
+    case 'historyEnd':
+      explanation = T.explain.historyEnd;
+      rows = <Row k={T.rows.fate} v={T.rows.fates[r.fate]} />;
+      break;
+    case 'cycleEnd':
+      explanation = T.explain.cycleEnd;
+      rows = (
+        <>
+          <Row k={T.rows.sourceSize} v={r.sourceSize} />
+          <Row k={T.rows.bankSize} v={r.bankSize} />
+          <Row k={T.rows.k} v={`${r.bankSize} / ${r.sourceSize} = ${r.k.toFixed(5)}`} />
+          <Row k={T.rows.phase} v={r.active ? T.rows.active : T.rows.inactive} />
+          {r.kMean !== null && (
+            <Row k={T.rows.kMean} v={`${r.kMean.toFixed(5)}${Number.isFinite(r.kSigma) ? ` ± ${r.kSigma!.toFixed(5)}` : ''}`} />
+          )}
+          <Row k="→" v={T.rows.nextSource} />
+        </>
+      );
+      break;
+    case 'done':
+      explanation = engine.stopped ? T.emptyBank : T.explain.done;
+      break;
+  }
+  return { kicker, title, explanation, visual, rows };
+}

@@ -8,20 +8,17 @@ interface Props {
   onChange: (v: ParamValues) => void;
   seed: number;
   setSeed: (n: number) => void;
-  target: number;
-  setTarget: (n: number) => void;
 }
 
 /**
  * Inputs are edited as text and applied as soon as the whole set is valid.
  * Applying new values rebuilds the problem and resets the tallies.
  */
-export function ParamsPanel({ example, values, onChange, seed, setSeed, target, setTarget }: Props) {
+export function ParamsPanel({ example, values, onChange, seed, setSeed }: Props) {
   const t = useT();
   const lang = useLang();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [seedText, setSeedText] = useState(String(seed));
-  const [targetText, setTargetText] = useState(String(target));
 
   useEffect(() => {
     setDraft(Object.fromEntries(Object.entries(values).map(([k, v]) => [k, String(v)])));
@@ -36,7 +33,8 @@ export function ParamsPanel({ example, values, onChange, seed, setSeed, target, 
     } else {
       const v = Number(raw);
       parsed[p.key] = v;
-      if (raw.trim() === '' || !Number.isFinite(v) || v < p.min || v > p.max) errors[p.key] = true;
+      if (raw.trim() === '' || !Number.isFinite(v) || v < p.min || v > p.max || (p.integer && !Number.isInteger(v)))
+        errors[p.key] = true;
     }
   }
   const crossError = Object.keys(errors).length === 0 ? example.validate?.(parsed, t) ?? null : null;
@@ -51,7 +49,7 @@ export function ParamsPanel({ example, values, onChange, seed, setSeed, target, 
       if (p.type === 'select') candidate[p.key] = r;
       else {
         const v = Number(r);
-        if (r.trim() === '' || !Number.isFinite(v) || v < p.min || v > p.max) return;
+        if (r.trim() === '' || !Number.isFinite(v) || v < p.min || v > p.max || (p.integer && !Number.isInteger(v))) return;
         candidate[p.key] = v;
       }
     }
@@ -112,35 +110,19 @@ export function ParamsPanel({ example, values, onChange, seed, setSeed, target, 
         </label>
       ))}
       {crossError && <small className="error">{crossError}</small>}
-      <div className="field-pair">
-        <label className="field">
-          <span className="field-label">{t.seed}</span>
-          <input
-            type="number"
-            step={1}
-            value={seedText}
-            onChange={(e) => {
-              setSeedText(e.target.value);
-              const v = Number(e.target.value);
-              if (e.target.value.trim() !== '' && Number.isInteger(v) && v >= 0) setSeed(v);
-            }}
-          />
-        </label>
-        <label className="field">
-          <span className="field-label">{t.histories}</span>
-          <input
-            type="number"
-            min={1}
-            step={1000}
-            value={targetText}
-            onChange={(e) => {
-              setTargetText(e.target.value);
-              const v = Number(e.target.value);
-              if (Number.isInteger(v) && v >= 1) setTarget(v);
-            }}
-          />
-        </label>
-      </div>
+      <label className="field">
+        <span className="field-label">{t.seed}</span>
+        <input
+          type="number"
+          step={1}
+          value={seedText}
+          onChange={(e) => {
+            setSeedText(e.target.value);
+            const v = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isInteger(v) && v >= 0) setSeed(v);
+          }}
+        />
+      </label>
     </section>
   );
 }

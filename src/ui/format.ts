@@ -13,9 +13,11 @@ export function fmt(v: number, digits = 4): string {
 const SUP: Record<string, string> = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
 const superscript = (n: number) => String(n).split('').map((c) => SUP[c] ?? c).join('');
 
-/** Energy in MeV, shown in keV below 1 MeV. */
+/** Energy in MeV, shown in keV below 1 MeV and in eV below 1 keV. */
 export function fmtE(E: number): string {
-  return E < 1 ? `${fmt(E * 1000, 4)} keV` : `${fmt(E, 4)} MeV`;
+  if (E >= 1) return `${fmt(E, 4)} MeV`;
+  if (E >= 1e-3) return `${fmt(E * 1e3, 4)} keV`;
+  return `${fmt(E * 1e6, 4)} eV`;
 }
 
 export function fmtVec(v: { x: number; y: number; z: number }): string {

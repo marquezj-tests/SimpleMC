@@ -1,5 +1,5 @@
 /**
- * Angular distributions for photon scattering and the helpers used to sample
+ * Angular and energy distributions for photon scattering and the helpers used to sample
  * them. Both distributions are sampled by numerically inverting their
  * cumulative distribution function (CDF), the same idea used for the flight
  * distance, so the step-by-step window can show the CDF and the sampled value.
@@ -56,8 +56,24 @@ export function tabulateCdf(f: (mu: number) => number, n = 400): Cdf {
   return { mu, F, pdf };
 }
 
+/** Tabulate the CDF of a density p(x) ∝ f(x) on the given increasing grid. */
+export function tabulateCdfOn(grid: number[], f: (x: number) => number): Cdf {
+  const n = grid.length;
+  const mu = Float64Array.from(grid);
+  const pdf = new Float64Array(n);
+  const F = new Float64Array(n);
+  for (let i = 0; i < n; i++) pdf[i] = f(grid[i]);
+  for (let i = 1; i < n; i++) F[i] = F[i - 1] + 0.5 * (pdf[i] + pdf[i - 1]) * (mu[i] - mu[i - 1]);
+  const norm = F[n - 1];
+  for (let i = 0; i < n; i++) {
+    F[i] /= norm;
+    pdf[i] /= norm;
+  }
+  return { mu, F, pdf };
+}
+
 /** Invert a tabulated CDF: find μ such that F(μ) = ξ (linear interpolation). */
-export function invertCdf(cdf: Cdf, xi: number): number {
+export function invertCdf(cdf: Cdf, xi: number, clamp = true): number {
   const { mu, F } = cdf;
   let lo = 0;
   let hi = F.length - 1;
@@ -68,7 +84,8 @@ export function invertCdf(cdf: Cdf, xi: number): number {
   }
   const dF = F[hi] - F[lo];
   const t = dF > 0 ? (xi - F[lo]) / dF : 0;
-  return Math.min(1, Math.max(-1, mu[lo] + t * (mu[hi] - mu[lo])));
+  const v = mu[lo] + t * (mu[hi] - mu[lo]);
+  return clamp ? Math.min(1, Math.max(-1, v)) : v;
 }
 
 export const kleinNishinaCdf = (E: number) => tabulateCdf((mu) => kleinNishina(E, mu));

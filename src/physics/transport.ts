@@ -22,6 +22,7 @@ import {
   type Vec3,
 } from './sampling';
 import type { Tally } from './tally';
+import type { Engine, Track } from './engine';
 
 export interface SourceParticle {
   pos: Vec3;
@@ -44,19 +45,7 @@ export interface Problem {
 
 export type Fate = 'transmitted' | 'reflected' | 'photoelectric' | 'pair' | 'cutoff';
 export type CollisionKind = Reaction | 'cutoff';
-
-export interface Track {
-  history: number;
-  /** true for photons from the source, false for annihilation photons */
-  primary: boolean;
-  /** true while the photon has not interacted */
-  uncollided: boolean;
-  points: Vec3[];
-  collisions: { pos: Vec3; kind: CollisionKind }[];
-  fate?: Fate;
-  /** For escaping photons: the last flight direction (to draw the exit ray). */
-  exitDir?: Vec3;
-}
+export type { Track };
 
 export interface PhotonState {
   pos: Vec3;
@@ -152,7 +141,7 @@ export interface TransportState {
   tally: unknown;
 }
 
-export class Transport {
+export class Transport implements Engine<StepRecord> {
   readonly problem: Problem;
   readonly rng: RNG;
   history = 0;
@@ -481,7 +470,8 @@ export class Transport {
     };
   }
 
-  restoreState(st: TransportState): void {
+  restoreState(state: unknown): void {
+    const st = state as TransportState;
     const objects = structuredClone({ tracks: st.tracks, photon: st.photon, bank: st.bank });
     this.tracks = objects.tracks;
     this.photon = objects.photon;
@@ -507,7 +497,7 @@ export class Transport {
    * (missing values are generated as before). `before` must be the state
    * saved just before that step.
    */
-  redoStep(before: TransportState, xi: number[]): StepRecord {
+  redoStep(before: unknown, xi: number[]): StepRecord {
     this.restoreState(before);
     this.rng.override(xi);
     const rec = this.step();
@@ -516,10 +506,10 @@ export class Transport {
   }
 
   /** Run steps until the current history is finished. */
-  finishHistory(): void {
+  finishHistory(): StepRecord {
+    let rec = this.step();
     let guard = 0;
-    while (guard++ < 1_000_000) {
-      if (this.step().kind === 'historyEnd') return;
-    }
+    while (rec.kind !== 'historyEnd' && guard++ < 1_000_000) rec = this.step();
+    return rec;
   }
 }

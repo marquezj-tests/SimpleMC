@@ -57,11 +57,13 @@ function ticks(a: Axis): { v: number; major: boolean }[] {
     const d0 = Math.floor(Math.log10(a.min));
     const d1 = Math.ceil(Math.log10(a.max));
     const decades = d1 - d0;
+    // with many decades, label only every `every`-th one
+    const every = Math.max(1, Math.ceil(decades / 7));
     for (let d = d0; d <= d1; d++) {
       for (let m = 1; m < 10; m++) {
         const v = m * Math.pow(10, d);
         if (v < a.min * 0.999 || v > a.max * 1.001) continue;
-        if (m === 1) out.push({ v, major: true });
+        if (m === 1) out.push({ v, major: (d - d0) % every === 0 });
         else if (decades <= 3 && (m === 2 || m === 5)) out.push({ v, major: false });
       }
     }

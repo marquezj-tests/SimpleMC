@@ -3,8 +3,9 @@ import { createContext, useContext } from 'react';
 export type Lang = 'en' | 'es';
 
 const en = {
+  lang: 'en' as Lang,
   appTitle: 'SimpleMC',
-  appSubtitle: 'Monte Carlo photon transport, step by step',
+  appSubtitle: 'Monte Carlo radiation transport, step by step',
   example: 'Example',
   language: 'Language',
   parameters: 'Parameters',
@@ -145,19 +146,19 @@ const en = {
     collides: 'collides inside the slab',
   },
   about: 'How it works',
-  aboutText: [
-    'Each photon history is a random walk: sample a flight distance from the exponential law, move, sample the reaction from the partial cross sections, sample new energy and direction, and repeat until the photon is absorbed or escapes.',
-    'Cross sections: NIST XCOM (Berger et al., NIST Standard Reference Database 8), 10 keV – 20 MeV, log–log interpolation. Incoherent scattering uses Klein–Nishina (free electrons), coherent scattering uses the Thomson shape, photoelectric absorption is local, and pair production deposits the kinetic energy locally and emits two 511 keV photons.',
-    'Transmission T is the number of photons leaving through the back face per source photon. Its uncertainty is the standard error of the mean over histories.',
-  ],
-  dataSource: 'Cross sections: NIST XCOM',
+  dataSource: 'Photon data',
+  dataSourceNeutron: 'neutron data',
+  processedWith: 'processed with',
+  loadingData: 'Loading nuclear data…',
+  runComplete: 'The requested run is complete. Press Reset to start again.',
 };
 
 type Dict = typeof en;
 
 const es: Dict = {
+  lang: 'es',
   appTitle: 'SimpleMC',
-  appSubtitle: 'Transporte de fotones por Monte Carlo, paso a paso',
+  appSubtitle: 'Transporte de radiación por Monte Carlo, paso a paso',
   example: 'Ejemplo',
   language: 'Idioma',
   parameters: 'Parámetros',
@@ -298,12 +299,11 @@ const es: Dict = {
     collides: 'colisiona dentro de la placa',
   },
   about: 'Cómo funciona',
-  aboutText: [
-    'Cada historia de un fotón es un camino aleatorio: se muestrea la distancia de vuelo con la ley exponencial, se mueve el fotón, se muestrea la reacción a partir de las secciones eficaces parciales, se muestrean la nueva energía y dirección, y se repite hasta que el fotón es absorbido o escapa.',
-    'Secciones eficaces: NIST XCOM (Berger et al., NIST Standard Reference Database 8), de 10 keV a 20 MeV, interpolación log–log. La dispersión incoherente usa Klein–Nishina (electrones libres), la coherente usa la forma de Thomson, la absorción fotoeléctrica es local, y la producción de pares deposita localmente la energía cinética y emite dos fotones de 511 keV.',
-    'La transmisión T es el número de fotones que salen por la cara posterior por cada fotón de la fuente. Su incertidumbre es el error estándar de la media sobre las historias.',
-  ],
-  dataSource: 'Secciones eficaces: NIST XCOM',
+  dataSource: 'Datos de fotones',
+  dataSourceNeutron: 'datos de neutrones',
+  processedWith: 'procesados con',
+  loadingData: 'Cargando datos nucleares…',
+  runComplete: 'La simulación pedida ha terminado. Pulse Reiniciar para empezar de nuevo.',
 };
 
 export const DICTS: Record<Lang, Dict> = { en, es };

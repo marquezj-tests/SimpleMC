@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { EXAMPLES } from './examples';
 import type { ParamValues } from './examples/types';
 import { DICTS, LangContext, type Lang } from './i18n';
-import { Transport, type StepRecord, type TransportState } from './physics/transport';
+import type { StepRecordBase } from './physics/engine';
 import { ParamsPanel } from './ui/ParamsPanel';
 import { ResultsPanel } from './ui/ResultsPanel';
 import { StepWindow } from './ui/StepWindow';
@@ -10,6 +10,7 @@ import { TrackView2D } from './ui/TrackView2D';
 import { Legend } from './ui/Legend';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { TrackView3DCanvas } from './ui/TrackView3DCanvas';
+import { useColors } from './ui/colors';
 
 // three.js is only downloaded when the 3D view is opened
 const TrackView3D = lazy(() => import('./ui/TrackView3D').then((m) => ({ default: m.TrackView3D })));
@@ -45,18 +46,18 @@ function parseXi(text: string): number[] | null | 'error' {
 export default function App() {
   const [lang, setLang] = useState<Lang>(() => (store.get('simplemc.lang') === 'es' ? 'es' : 'en'));
   const t = DICTS[lang];
+  const colors = useColors();
   const [exampleId, setExampleId] = useState(EXAMPLES[0].id);
   const example = EXAMPLES.find((e) => e.id === exampleId) ?? EXAMPLES[0];
   const [values, setValues] = useState<ParamValues>(example.defaults);
   const [seed, setSeed] = useState(12345);
-  const [target, setTarget] = useState(10000);
   const [maxTracks, setMaxTracks] = useState(200);
   const [mode, setMode] = useState<Mode>('step');
   const [view, setView] = useState<View>('2d');
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState(55);
   const [showWindow, setShowWindow] = useState(true);
-  const [record, setRecord] = useState<StepRecord | null>(null);
+  const [record, setRecord] = useState<StepRecordBase | null>(null);
   const [xiText, setXiText] = useState('');
   const [version, setVersion] = useState(0);
   const [resetCount, setResetCount] = useState(0);
@@ -68,13 +69,28 @@ export default function App() {
     document.documentElement.lang = lang;
   }, [lang]);
 
-  const problem = useMemo(() => example.build(values), [example, values, resetCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const transport = useMemo(() => new Transport(problem, seed), [problem, seed]);
-  transport.maxTracks = maxTracks;
+  // Examples with large data load it on first use
+  const [loaded, setLoaded] = useState<Record<string, boolean>>({});
+  const ready = !example.load || loaded[example.id];
+  useEffect(() => {
+    if (!example.load || loaded[example.id]) return;
+    let alive = true;
+    example.load().then(() => alive && setLoaded((l) => ({ ...l, [example.id]: true })));
+    return () => {
+      alive = false;
+    };
+  }, [example, loaded]);
+
+  const sim = useMemo(
+    () => (ready ? example.create(values, seed) : null),
+    [example, values, seed, resetCount, ready], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const engine = sim?.engine ?? null;
+  if (engine) engine.maxTracks = maxTracks;
 
 
   /** Engine state saved just before the step on screen, so it can be redone with another ξ. */
-  const before = useRef<TransportState | null>(null);
+  const before = useRef<unknown>(null);
   /** ξ values the step on screen actually used. */
   const usedXi = record?.xi.map((x) => x.xi) ?? [];
   const canEditXi = !running && before.current !== null && usedXi.length > 0;
@@ -82,29 +98,30 @@ export default function App() {
   const xiError = canEditXi && (xiParsed === 'error' || (Array.isArray(xiParsed) && xiParsed.length > usedXi.length));
 
   // Refs so that the animation loop sees current values without restarting.
-  const live = useRef({ mode, speed, target });
-  live.current = { mode, speed, target };
+  const live = useRef({ mode, speed });
+  live.current = { mode, speed };
 
   /** Show a step record and put the ξ it used in the editable field. */
-  const show = useCallback((rec: StepRecord | null) => {
+  const show = useCallback((rec: StepRecordBase | null) => {
     setRecord(rec);
     setXiText(rec ? rec.xi.map((x) => x.xi.toFixed(4)).join(', ') : '');
   }, []);
 
   /** One step in step-by-step mode; remembers the state before it if it uses random numbers. */
-  const stepOnce = useCallback((): StepRecord => {
-    before.current = transport.nextXiCount > 0 ? transport.saveState() : null;
-    return transport.step();
-  }, [transport]);
+  const stepOnce = useCallback((): StepRecordBase => {
+    const e = engine!;
+    before.current = e.nextXiCount > 0 ? e.saveState() : null;
+    return e.step();
+  }, [engine]);
 
   /** The user typed a ξ for the step on screen: redo that step with it. */
   const changeXi = (text: string) => {
     setXiText(text);
     const vals = parseXi(text);
-    if (!canEditXi || !Array.isArray(vals) || vals.length > usedXi.length) return;
+    if (!engine || !canEditXi || !Array.isArray(vals) || vals.length > usedXi.length) return;
     // values not typed keep the ones generated originally
     const xi = usedXi.map((v, i) => vals[i] ?? v);
-    setRecord(transport.redoStep(before.current!, xi));
+    setRecord(engine.redoStep(before.current, xi));
     setVersion((v) => v + 1);
   };
 
@@ -113,9 +130,10 @@ export default function App() {
     show(null);
     setRunning(false);
     setVersion((v) => v + 1);
-  }, [transport, show]);
+  }, [engine, show]);
 
   const nextStep = () => {
+    if (!engine || sim?.isDone()) return;
     setRunning(false);
     setShowWindow(true);
     show(stepOnce());
@@ -123,10 +141,18 @@ export default function App() {
   };
 
   const nextParticle = () => {
+    if (!engine || sim?.isDone()) return;
     setRunning(false);
-    let rec = stepOnce();
-    let guard = 0;
-    while (rec.kind !== 'historyEnd' && guard++ < 1_000_000) rec = transport.step();
+    const rec = engine.finishHistory();
+    before.current = null;
+    show(rec);
+    setVersion((v) => v + 1);
+  };
+
+  const runExtra = (run: () => StepRecordBase) => {
+    if (!engine || sim?.isDone()) return;
+    setRunning(false);
+    const rec = run();
     before.current = null;
     show(rec);
     setVersion((v) => v + 1);
@@ -137,21 +163,19 @@ export default function App() {
     setResetCount((n) => n + 1);
   };
 
-  const histories = () => transport.history - (transport.atHistoryStart ? 0 : 1);
-
   // Continuous run
   useEffect(() => {
-    if (!running) return;
+    if (!running || !engine || !sim) return;
     let raf = 0;
     let last = performance.now();
     let acc = 0;
     const frame = (now: number) => {
       const dt = Math.min(100, now - last);
       last = now;
-      const { mode: m, speed: sp, target: N } = live.current;
+      const { mode: m, speed: sp } = live.current;
       let changed = false;
-      let latest: StepRecord | null = null;
-      const done = () => transport.atHistoryStart && histories() >= N;
+      let latest: StepRecordBase | null = null;
+      const done = () => sim.isDone();
       if (m === 'step' || sp < 40) {
         // animated: a number of elementary steps per second
         const sps = m === 'step' ? 0.5 * Math.pow(60, sp / 100) : 2 * Math.pow(100, sp / 40);
@@ -159,7 +183,7 @@ export default function App() {
         while (acc >= 1 && !done()) {
           if (m === 'step') latest = stepOnce();
           else {
-            transport.step();
+            engine.step();
             before.current = null;
           }
           acc -= 1;
@@ -170,8 +194,8 @@ export default function App() {
         const perFrame = Math.round(Math.pow(10, ((sp - 40) / 60) * 3.5));
         const t0 = performance.now();
         before.current = null;
-        if (!transport.atHistoryStart) transport.finishHistory();
-        for (let i = 0; i < perFrame && !done() && performance.now() - t0 < 14; i++) transport.finishHistory();
+        if (!engine.atHistoryStart) engine.finishHistory();
+        for (let i = 0; i < perFrame && !done() && performance.now() - t0 < 14; i++) engine.finishHistory();
         changed = true;
       }
       if (latest && m === 'step') show(latest);
@@ -184,34 +208,37 @@ export default function App() {
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [running, transport, stepOnce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [running, engine, sim, stepOnce, show]);
 
-  const reachedTarget = transport.atHistoryStart && histories() >= target;
+  const reachedTarget = sim?.isDone() ?? false;
   const runButton = (
     <button
       className="btn primary"
       onClick={() => setRunning((r) => !r)}
       disabled={!running && reachedTarget}
-      title={!running && reachedTarget ? `${t.historiesDone} = ${target}` : undefined}
+      title={!running && reachedTarget ? t.runComplete : undefined}
     >
       {running ? `❚❚ ${t.pause}` : `▶ ${t.run}`}
     </button>
   );
   const stepControls = (
     <>
-      <button className="btn" onClick={nextStep}>
+      <button className="btn" onClick={nextStep} disabled={reachedTarget}>
         {t.nextStep} ›
       </button>
-      <button className="btn" onClick={nextParticle}>
+      <button className="btn" onClick={nextParticle} disabled={reachedTarget}>
         {t.nextParticle} »
       </button>
+      {sim?.extraControls?.map((x) => (
+        <button key={x.label(t)} className="btn" onClick={() => runExtra(x.run)} disabled={reachedTarget}>
+          {x.label(t)} »»
+        </button>
+      ))}
       {runButton}
     </>
   );
 
-  const materialName = problem.material.name[lang];
   const showCurrent = mode === 'step' || speed < 40;
-  const thickness = Number(values.thickness);
 
   return (
     <LangContext.Provider value={lang}>
@@ -258,10 +285,8 @@ export default function App() {
               onChange={(v) => setValues(v)}
               seed={seed}
               setSeed={setSeed}
-              target={target}
-              setTarget={setTarget}
             />
-            <ResultsPanel rows={example.results(problem, values, t)} version={version} />
+            {sim && <ResultsPanel rows={sim.results(t, colors)} note={sim.resultsNote(t)} version={version} />}
           </aside>
 
           <section className="stage">
@@ -312,51 +337,42 @@ export default function App() {
             </div>
 
             <div className="viewport">
-              {view === '2d' ? (
-                <TrackView2D
-                  transport={transport}
-                  version={version}
-                  thickness={thickness}
-                  energy={Number(values.energy)}
-                  materialName={materialName}
-                  showCurrent={showCurrent}
-                />
+              {!sim || !engine ? (
+                <div className="view-loading">{t.loadingData}</div>
+              ) : view === '2d' ? (
+                <TrackView2D engine={engine} sim={sim} scene={sim.scene} version={version} showCurrent={showCurrent} />
+              ) : view3dError ? (
+                // WebGL unavailable or failed: same view drawn with the plain 2D canvas
+                <TrackView3DCanvas engine={engine} sim={sim} scene={sim.scene} version={version} showCurrent={showCurrent} />
               ) : (
-                view3dError ? (
-                  // WebGL unavailable or failed: same view drawn with the plain 2D canvas
-                  <TrackView3DCanvas transport={transport} version={version} thickness={thickness} showCurrent={showCurrent} />
-                ) : (
-                  <ErrorBoundary
-                    fallback={() => {
-                      // report after render; the boundary shows nothing meanwhile
-                      queueMicrotask(() => setView3dError((e) => e ?? 'crash'));
-                      return null;
-                    }}
-                  >
-                    <Suspense fallback={<div className="view3d loading">…</div>}>
-                      <TrackView3D
-                        transport={transport}
-                        version={version}
-                        thickness={thickness}
-                        showCurrent={showCurrent}
-                        onFail={(reason) => setView3dError(reason)}
-                      />
-                    </Suspense>
-                  </ErrorBoundary>
-                )
+                <ErrorBoundary
+                  fallback={() => {
+                    // report after render; the boundary shows nothing meanwhile
+                    queueMicrotask(() => setView3dError((e) => e ?? 'crash'));
+                    return null;
+                  }}
+                >
+                  <Suspense fallback={<div className="view3d loading">…</div>}>
+                    <TrackView3D
+                      engine={engine}
+                      sim={sim}
+                      scene={sim.scene}
+                      version={version}
+                      showCurrent={showCurrent}
+                      onFail={(reason) => setView3dError(reason)}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               )}
             </div>
-            <Legend />
+            {sim && <Legend spec={sim.legend(t, colors)} />}
+            {sim?.Panels && <sim.Panels version={version} />}
 
             <details className="about">
               <summary>{t.about}</summary>
-              {t.aboutText.map((p, i) => (
+              {example.about[lang].map((p, i) => (
                 <p key={i}>{p}</p>
               ))}
-              <p className="muted small">
-                {problem.material.table.source}. {problem.material.name[lang]}: {problem.material.table.composition}, ρ ={' '}
-                {problem.material.density} g/cm³.
-              </p>
             </details>
           </section>
         </main>
@@ -365,16 +381,23 @@ export default function App() {
           <span>
             {t.dataSource}:{' '}
             <a href="https://physics.nist.gov/xcom" target="_blank" rel="noreferrer">
-              physics.nist.gov/xcom
+              NIST XCOM
+            </a>{' '}
+            · {t.dataSourceNeutron}:{' '}
+            <a href="https://www.nndc.bnl.gov/endf-b7.1/" target="_blank" rel="noreferrer">
+              ENDF/B-VII.1 (NNDC)
+            </a>
+            , {t.processedWith}{' '}
+            <a href="https://openmc.org" target="_blank" rel="noreferrer">
+              OpenMC
             </a>
           </span>
         </footer>
 
-        {mode === 'step' && showWindow && (
+        {mode === 'step' && showWindow && sim && (
           <StepWindow
             record={record}
-            material={problem.material}
-            sourceWidth={(problem.source as { width?: number }).width ?? 0}
+            content={sim.stepContent(record, t, lang, colors)}
             xiText={xiText}
             setXiText={changeXi}
             xiEditable={canEditXi}

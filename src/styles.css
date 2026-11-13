@@ -597,7 +597,7 @@ input[aria-invalid='true'] {
   gap: 8px;
 }
 .step-actions .controls {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 .xi-label {
   white-space: nowrap;
@@ -614,3 +614,12 @@ input[aria-invalid='true'] {
   width: 100%;
 }
 .view3d.loading { height: 300px; display: grid; place-items: center; color: var(--muted); }
+.results-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin: 12px 0 2px;
+}
+.view-loading { height: 300px; display: grid; place-items: center; color: var(--muted); }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+.panel.chart h2 { margin-bottom: 4px; }

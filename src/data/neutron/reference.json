@@ -1,0 +1,14 @@
+{
+  "keff": 0.99597,
+  "sigma": 0.0002,
+  "code": "OpenMC 0.16.0, continuous energy, full physics",
+  "data": "ENDF/B-VII.1 (NNDC ACE, 293.6 K): U-235 and U-238; U-234 counted as U-238",
+  "particles": 50000,
+  "batches": 220,
+  "inactive": 20,
+  "benchmark": {
+    "name": "HEU-MET-FAST-001 (Godiva)",
+    "keff": 1.0,
+    "sigma": 0.001
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { materialById } from '../data/materials';
-import { slabExample } from '../examples/slab';
+import { buildSlabProblem } from '../examples/slab';
 import { Transport } from './transport';
 import { SlabTransmissionTally } from './tally';
 import { invertCdf, kleinNishina, kleinNishinaCdf, rotate } from './sampling';
@@ -54,7 +54,7 @@ describe('sampling', () => {
 
 describe('slab transport', () => {
   it('uncollided transmission agrees with exp(-μt)', () => {
-    const problem = slabExample.build({ material: 'Pb', energy: 0.662, thickness: 1, cutoff: 0.01 });
+    const problem = buildSlabProblem({ material: 'Pb', energy: 0.662, thickness: 1, cutoff: 0.01 });
     const t = new Transport(problem, 12345);
     const N = 20000;
     for (let i = 0; i < N; i++) t.finishHistory();
@@ -65,14 +65,14 @@ describe('slab transport', () => {
     expect(tally.total.mean).toBeGreaterThan(unc.mean); // buildup > 1
   });
   it('produces annihilation photons above the pair threshold', () => {
-    const problem = slabExample.build({ material: 'Pb', energy: 10, thickness: 2, cutoff: 0.01 });
+    const problem = buildSlabProblem({ material: 'Pb', energy: 10, thickness: 2, cutoff: 0.01 });
     const t = new Transport(problem, 7);
     let banked = 0;
     for (let i = 0; i < 20000 && banked === 0; i++) if (t.step().kind === 'bank') banked++;
     expect(banked).toBeGreaterThan(0);
   });
   it('manual ξ overrides the generator', () => {
-    const problem = slabExample.build({ material: 'H2O', energy: 1, thickness: 10, cutoff: 0.01 });
+    const problem = buildSlabProblem({ material: 'H2O', energy: 1, thickness: 10, cutoff: 0.01 });
     const t = new Transport(problem, 1);
     t.step(); // birth
     t.step(); // lookup
@@ -82,7 +82,7 @@ describe('slab transport', () => {
     if (rec.kind === 'flight') expect(rec.s).toBeCloseTo(Math.log(2) / rec.mu, 10);
   });
   it('redoing a step with another ξ, then with the original ξ, restores the same history', () => {
-    const build = () => slabExample.build({ material: 'Pb', energy: 0.662, thickness: 1, cutoff: 0.01 });
+    const build = () => buildSlabProblem({ material: 'Pb', energy: 0.662, thickness: 1, cutoff: 0.01 });
     const ref = new Transport(build(), 99);
     const refRecs = Array.from({ length: 40 }, () => ref.step());
 

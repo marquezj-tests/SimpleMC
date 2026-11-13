@@ -99,7 +99,19 @@ export function CrossSectionPlot({ material, E, mode }: { material: Material; E:
 }
 
 /** CDF of the flight distance with ξ mapped to s. */
-export function FlightCdfPlot({ mu, s, xi, distance }: { mu: number; s: number; xi: number; distance: number }) {
+export function FlightCdfPlot({
+  mu,
+  s,
+  xi,
+  distance,
+  yLabel,
+}: {
+  mu: number;
+  s: number;
+  xi: number;
+  distance: number;
+  yLabel?: string;
+}) {
   const t = useT();
   const c = useColors();
   let xmax = 1.15 * Math.max(s, Math.min(distance, 6 / mu), 2 / mu);
@@ -114,7 +126,7 @@ export function FlightCdfPlot({ mu, s, xi, distance }: { mu: number; s: number; 
     <Plot
       ariaLabel="flight-cdf"
       x={{ min: 0, max: xmax, label: t.labels.cdfAxisS }}
-      y={{ min: 0, max: 1, label: t.labels.cdfAxisF }}
+      y={{ min: 0, max: 1, label: yLabel ?? t.labels.cdfAxisF }}
       series={[{ id: 'cdf', label: 'F(s)', color: c.track.uncollided, points: pts }]}
       hoverTitle={(x) => `s = ${fmt(x)} cm`}
       hover={(x) => [{ label: 'F(s)', value: fmt(1 - Math.exp(-mu * x)) }]}
@@ -311,5 +323,125 @@ export function AzimuthDiagram({ phi }: { phi: number }) {
         φ = {deg(phi).toFixed(1)}°
       </text>
     </svg>
+  );
+}
+
+/**
+ * Generic CDF plot: F(x) from a tabulated CDF, with ξ on the vertical axis
+ * mapped to the sampled value x.
+ */
+export function CdfPlot({
+  cdf,
+  xi,
+  value,
+  color,
+  xLabel,
+  yLabel,
+  xMin,
+  xMax,
+  format,
+  ariaLabel,
+}: {
+  cdf: Cdf;
+  xi: number;
+  value: number;
+  color: string;
+  xLabel: string;
+  yLabel: string;
+  xMin: number;
+  xMax: number;
+  format: (x: number) => string;
+  ariaLabel: string;
+}) {
+  const c = useColors();
+  const pts: [number, number][] = [];
+  for (let i = 0; i < cdf.mu.length; i++) if (cdf.mu[i] >= xMin && cdf.mu[i] <= xMax) pts.push([cdf.mu[i], cdf.F[i]]);
+  const right = value > xMin + 0.6 * (xMax - xMin);
+  return (
+    <Plot
+      ariaLabel={ariaLabel}
+      x={{ min: xMin, max: xMax, label: xLabel }}
+      y={{ min: 0, max: 1, label: yLabel }}
+      series={[{ id: 'cdf', label: 'F', color, points: pts }]}
+      hoverTitle={(x) => format(x)}
+      hover={(x) => {
+        let i = 0;
+        while (i < cdf.mu.length - 1 && cdf.mu[i + 1] < x) i++;
+        return [{ label: 'F', value: cdf.F[i].toFixed(4) }];
+      }}
+      overlay={(sx, sy) => (
+        <g>
+          <line x1={sx(xMin)} x2={sx(value)} y1={sy(xi)} y2={sy(xi)} stroke={c.ink} strokeWidth={2} />
+          <line x1={sx(value)} x2={sx(value)} y1={sy(xi)} y2={sy(0)} stroke={c.ink} strokeWidth={2} />
+          <circle cx={sx(value)} cy={sy(xi)} r={5} fill={color} stroke={c.surface} strokeWidth={2} />
+          <text x={sx(xMin) + 6} y={sy(xi) - 6} className="plot-annot">
+            ξ = {xi.toFixed(4)}
+          </text>
+          <text x={sx(value) + (right ? -6 : 6)} y={sy(0) - 8} className="plot-annot" textAnchor={right ? 'end' : 'start'}>
+            {format(value)}
+          </text>
+        </g>
+      )}
+    />
+  );
+}
+
+/** Cumulative probability vector of arbitrary choices, with ξ marked. */
+export function ProbabilityBar({
+  items,
+  xi,
+  chosen,
+  axisLabel,
+}: {
+  items: { key: string; label: string; color: string; p: number; cum: number }[];
+  xi: number;
+  chosen: string;
+  axisLabel: string;
+}) {
+  const c = useColors();
+  const W = 440;
+  const x0 = 14;
+  const x1 = W - 14;
+  const sx = (v: number) => x0 + v * (x1 - x0);
+  let prev = 0;
+  const chosenLabel = items.find((i) => i.key === chosen)?.label ?? chosen;
+  return (
+    <div className="plot">
+      <svg viewBox={`0 0 ${W} 92`} role="img" aria-label="probabilities">
+        {items.map((it) => {
+          const a = prev;
+          prev = it.cum;
+          if (it.p <= 0) return null;
+          return (
+            <rect
+              key={it.key}
+              x={sx(a) + 1}
+              y={30}
+              width={Math.max(0, sx(it.cum) - sx(a) - 2)}
+              height={26}
+              rx={3}
+              fill={it.color}
+              opacity={it.key === chosen ? 1 : 0.45}
+            />
+          );
+        })}
+        {[0, 0.25, 0.5, 0.75, 1].map((v) => (
+          <g key={v}>
+            <line x1={sx(v)} x2={sx(v)} y1={58} y2={63} stroke={c.ink2} />
+            <text x={sx(v)} y={75} className="tick" textAnchor="middle">
+              {v}
+            </text>
+          </g>
+        ))}
+        <path d={`M${sx(xi)},28 l-6,-10 h12 z`} fill={c.ink} />
+        <line x1={sx(xi)} x2={sx(xi)} y1={26} y2={58} stroke={c.ink} strokeWidth={2} />
+        <text x={sx(xi)} y={12} className="plot-annot" textAnchor={xi > 0.8 ? 'end' : xi < 0.2 ? 'start' : 'middle'}>
+          ξ = {xi.toFixed(4)} → {chosenLabel}
+        </text>
+        <text x={W / 2} y={90} className="axis-label" textAnchor="middle">
+          {axisLabel}
+        </text>
+      </svg>
+    </div>
   );
 }
