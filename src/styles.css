@@ -515,9 +515,10 @@ input[aria-invalid='true'] {
   z-index: 10;
 }
 .step-header {
+  flex: none;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 10px 12px 8px 14px;
   border-bottom: 1px solid var(--border);
@@ -587,12 +588,21 @@ input[aria-invalid='true'] {
 .xi-chip.manual {
   outline: 1.5px solid var(--accent);
 }
-.step-footer {
-  border-top: 1px solid var(--border);
+.step-actions {
+  flex: none;
+  border-bottom: 1px solid var(--border);
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.step-actions .controls {
+  flex-wrap: nowrap;
+}
+.xi-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .xi-input {
   display: flex;

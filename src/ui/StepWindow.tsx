@@ -236,13 +236,32 @@ export function StepWindow(props: Props) {
             {r ? `${t.history} ${r.history}` : t.stepWindow}
             {ph && ` · ${ph.primary ? t.photonPrimary : t.photonSecondary} · ${fmtE(ph.E)} · ${ph.collisions} ${t.collisions}`}
           </div>
-          <div className="step-title">{title}</div>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label={t.close} title={t.close}>
           ✕
         </button>
       </div>
+      {/* Fixed bar: buttons and ξ field stay in place whatever the step content is */}
+      <div className="step-actions">
+        <div className="controls">{controls}</div>
+        <label className="xi-input">
+          <span className="xi-label">
+            {t.nextXi} <small className="muted">· {t.nextNeeds(nextXiCount)}</small>
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={xiText}
+            placeholder="0 ≤ ξ < 1"
+            disabled={nextXiCount === 0}
+            aria-invalid={xiError}
+            title={xiError ? `${t.invalid}: 0 ≤ ξ < 1` : t.nextXiHelp}
+            onChange={(e) => setXiText(e.target.value)}
+          />
+        </label>
+      </div>
       <div className="step-body">
+        <div className="step-title">{title}</div>
         <p className="step-explain">{explanation}</p>
         {visual}
         {rows && <div className="kv-list">{rows}</div>}
@@ -255,25 +274,6 @@ export function StepWindow(props: Props) {
             ))}
           </div>
         )}
-      </div>
-      <div className="step-footer">
-        <label className="xi-input">
-          <span>
-            {t.nextXi} <small className="muted">{t.nextNeeds(nextXiCount)}</small>
-          </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={xiText}
-            placeholder="0 ≤ ξ < 1"
-            disabled={nextXiCount === 0}
-            aria-invalid={xiError}
-            title={t.nextXiHelp}
-            onChange={(e) => setXiText(e.target.value)}
-          />
-        </label>
-        {xiError && <div className="error">{t.invalid}: 0 ≤ ξ &lt; 1</div>}
-        <div className="controls">{controls}</div>
       </div>
     </div>
   );

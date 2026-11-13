@@ -301,7 +301,7 @@ export function AzimuthDiagram({ phi }: { phi: number }) {
   const r = 16;
   const arc = `M${cx + r},${cy} A${r},${r} 0 ${large} 0 ${cx + r * Math.cos(phi)},${cy - r * Math.sin(phi)}`;
   return (
-    <svg viewBox="0 0 160 100" className="diagram" role="img" aria-label="azimuth">
+    <svg viewBox="0 0 190 100" className="diagram" role="img" aria-label="azimuth">
       <circle cx={cx} cy={cy} r={R} fill="none" stroke={c.grid} strokeWidth={1.5} />
       <line x1={cx} y1={cy} x2={cx + R} y2={cy} stroke={c.muted} strokeDasharray="3 3" />
       <line x1={cx} y1={cy} x2={ex} y2={ey} stroke={c.reaction.coherent} strokeWidth={2.5} />
