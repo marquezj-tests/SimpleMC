@@ -22,10 +22,19 @@ function curve(nuc: Nuclide, key: 'total' | (typeof NREACTIONS)[number]): [numbe
   const id = `${nuc.id}:${key}`;
   const hit = decimated.get(id);
   if (hit) return hit;
-  // S(α,β) cross section comes from the thermal table (below its limit)
-  const sab = key === 'thermal' ? nuc.sab : null;
-  const E = sab ? sab.E : nuc.table.E;
-  const y = sab ? sab.xs : key === 'thermal' ? [] : nuc.table[key];
+  let E: number[];
+  let y: number[];
+  if (nuc.sab) {
+    // Bound nucleus: evaluate the cross sections actually used in transport,
+    // so that below the S(α,β) limit elastic is 0 and the total is S(α,β) +
+    // capture. Points just below and at the limit show the step.
+    const Emax = nuc.sab.Emax;
+    E = [...new Set([...nuc.table.E, ...nuc.sab.E, Emax * (1 - 1e-9), Emax])].sort((a, b) => a - b);
+    y = E.map((e) => nuc.xs(e)[key]);
+  } else {
+    E = nuc.table.E;
+    y = key === 'thermal' ? [] : nuc.table[key];
+  }
   const bins = 500;
   const lo = Math.log10(1e-11);
   const hi = Math.log10(20);

@@ -172,6 +172,12 @@ describe('S(α,β) for H in H2O (ACE discrete form)', () => {
     const bound = new Nuclide(h1, sab);
     expect(bound.xs(1e-8).elastic).toBe(0);
     expect(bound.xs(1e-8).thermal).toBeGreaterThan(20);
+    // below the limit the total is S(α,β) + capture only
+    for (const E of [1e-11, 1e-8, 1e-6, 4.4e-6]) {
+      const x = bound.xs(E);
+      expect(x.elastic).toBe(0);
+      expect(x.total).toBeCloseTo(x.thermal + x.capture, 12);
+    }
     expect(bound.xs(1e-5).thermal).toBe(0);
     expect(bound.xs(1e-5).elastic).toBeGreaterThan(10);
   });
