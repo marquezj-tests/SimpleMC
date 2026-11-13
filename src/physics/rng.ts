@@ -36,6 +36,17 @@ export class RNG {
     this.manual = values.slice();
   }
 
+  /** Generator state, used to undo and redo a step. */
+  getState(): number {
+    return this.state;
+  }
+
+  setState(state: number): void {
+    this.state = state >>> 0;
+    this.manual = [];
+    this.drawn = [];
+  }
+
   clearOverride(): void {
     this.manual = [];
   }

@@ -2,13 +2,14 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { EXAMPLES } from './examples';
 import type { ParamValues } from './examples/types';
 import { DICTS, LangContext, type Lang } from './i18n';
-import { Transport, type StepRecord } from './physics/transport';
+import { Transport, type StepRecord, type TransportState } from './physics/transport';
 import { ParamsPanel } from './ui/ParamsPanel';
 import { ResultsPanel } from './ui/ResultsPanel';
 import { StepWindow } from './ui/StepWindow';
 import { TrackView2D } from './ui/TrackView2D';
 import { Legend } from './ui/Legend';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { TrackView3DCanvas } from './ui/TrackView3DCanvas';
 
 // three.js is only downloaded when the 3D view is opened
 const TrackView3D = lazy(() => import('./ui/TrackView3D').then((m) => ({ default: m.TrackView3D })));
@@ -61,8 +62,6 @@ export default function App() {
   const [resetCount, setResetCount] = useState(0);
   /** Why the 3D view is unavailable, if it is. */
   const [view3dError, setView3dError] = useState<null | 'unsupported' | 'lost' | 'crash'>(null);
-  /** Bumped by “Try again” to remount the 3D view. */
-  const [view3dKey, setView3dKey] = useState(0);
 
   useEffect(() => {
     store.set('simplemc.lang', lang);
@@ -73,46 +72,63 @@ export default function App() {
   const transport = useMemo(() => new Transport(problem, seed), [problem, seed]);
   transport.maxTracks = maxTracks;
 
-  useEffect(() => {
-    setRecord(null);
-    setRunning(false);
-    setVersion((v) => v + 1);
-  }, [transport]);
 
+  /** Engine state saved just before the step on screen, so it can be redone with another ξ. */
+  const before = useRef<TransportState | null>(null);
+  /** ξ values the step on screen actually used. */
+  const usedXi = record?.xi.map((x) => x.xi) ?? [];
+  const canEditXi = !running && before.current !== null && usedXi.length > 0;
   const xiParsed = parseXi(xiText);
-  const xiError = xiParsed === 'error';
+  const xiError = canEditXi && (xiParsed === 'error' || (Array.isArray(xiParsed) && xiParsed.length > usedXi.length));
 
   // Refs so that the animation loop sees current values without restarting.
-  const live = useRef({ mode, speed, target, xiText });
-  live.current = { mode, speed, target, xiText };
+  const live = useRef({ mode, speed, target });
+  live.current = { mode, speed, target };
 
-  /** One step in step-by-step mode, honouring a manual ξ. */
+  /** Show a step record and put the ξ it used in the editable field. */
+  const show = useCallback((rec: StepRecord | null) => {
+    setRecord(rec);
+    setXiText(rec ? rec.xi.map((x) => x.xi.toFixed(4)).join(', ') : '');
+  }, []);
+
+  /** One step in step-by-step mode; remembers the state before it if it uses random numbers. */
   const stepOnce = useCallback((): StepRecord => {
-    const xi = parseXi(live.current.xiText);
-    if (Array.isArray(xi) && transport.nextXiCount > 0) {
-      transport.rng.override(xi);
-      setXiText('');
-    }
-    const rec = transport.step();
-    transport.rng.clearOverride();
-    return rec;
+    before.current = transport.nextXiCount > 0 ? transport.saveState() : null;
+    return transport.step();
   }, [transport]);
 
+  /** The user typed a ξ for the step on screen: redo that step with it. */
+  const changeXi = (text: string) => {
+    setXiText(text);
+    const vals = parseXi(text);
+    if (!canEditXi || !Array.isArray(vals) || vals.length > usedXi.length) return;
+    // values not typed keep the ones generated originally
+    const xi = usedXi.map((v, i) => vals[i] ?? v);
+    setRecord(transport.redoStep(before.current!, xi));
+    setVersion((v) => v + 1);
+  };
+
+  useEffect(() => {
+    before.current = null;
+    show(null);
+    setRunning(false);
+    setVersion((v) => v + 1);
+  }, [transport, show]);
+
   const nextStep = () => {
-    if (xiError) return;
     setRunning(false);
     setShowWindow(true);
-    setRecord(stepOnce());
+    show(stepOnce());
     setVersion((v) => v + 1);
   };
 
   const nextParticle = () => {
-    if (xiError) return;
     setRunning(false);
     let rec = stepOnce();
     let guard = 0;
     while (rec.kind !== 'historyEnd' && guard++ < 1_000_000) rec = transport.step();
-    setRecord(rec);
+    before.current = null;
+    show(rec);
     setVersion((v) => v + 1);
   };
 
@@ -141,7 +157,11 @@ export default function App() {
         const sps = m === 'step' ? 0.5 * Math.pow(60, sp / 100) : 2 * Math.pow(100, sp / 40);
         acc += (dt * sps) / 1000;
         while (acc >= 1 && !done()) {
-          latest = m === 'step' ? stepOnce() : transport.step();
+          if (m === 'step') latest = stepOnce();
+          else {
+            transport.step();
+            before.current = null;
+          }
           acc -= 1;
           changed = true;
         }
@@ -149,11 +169,12 @@ export default function App() {
         // fast: whole histories per frame, within a time budget
         const perFrame = Math.round(Math.pow(10, ((sp - 40) / 60) * 3.5));
         const t0 = performance.now();
+        before.current = null;
         if (!transport.atHistoryStart) transport.finishHistory();
         for (let i = 0; i < perFrame && !done() && performance.now() - t0 < 14; i++) transport.finishHistory();
         changed = true;
       }
-      if (latest && m === 'step') setRecord(latest);
+      if (latest && m === 'step') show(latest);
       if (changed) setVersion((v) => v + 1);
       if (done()) {
         setRunning(false);
@@ -178,10 +199,10 @@ export default function App() {
   );
   const stepControls = (
     <>
-      <button className="btn" onClick={nextStep} disabled={xiError}>
+      <button className="btn" onClick={nextStep}>
         {t.nextStep} ›
       </button>
-      <button className="btn" onClick={nextParticle} disabled={xiError}>
+      <button className="btn" onClick={nextParticle}>
         {t.nextParticle} »
       </button>
       {runButton}
@@ -302,26 +323,10 @@ export default function App() {
                 />
               ) : (
                 view3dError ? (
-                  <div className="view-error" role="alert">
-                    <p>{view3dError === 'unsupported' ? t.view3dUnsupported : view3dError === 'lost' ? t.view3dLost : t.view3dCrash}</p>
-                    <div className="controls">
-                      <button className="btn primary" onClick={() => setView('2d')}>
-                        {t.backTo2d}
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          setView3dError(null);
-                          setView3dKey((k) => k + 1);
-                        }}
-                      >
-                        {t.retry}
-                      </button>
-                    </div>
-                  </div>
+                  // WebGL unavailable or failed: same view drawn with the plain 2D canvas
+                  <TrackView3DCanvas transport={transport} version={version} thickness={thickness} showCurrent={showCurrent} />
                 ) : (
                   <ErrorBoundary
-                    key={view3dKey}
                     fallback={() => {
                       // report after render; the boundary shows nothing meanwhile
                       queueMicrotask(() => setView3dError((e) => e ?? 'crash'));
@@ -370,9 +375,9 @@ export default function App() {
             record={record}
             material={problem.material}
             sourceWidth={(problem.source as { width?: number }).width ?? 0}
-            nextXiCount={transport.nextXiCount}
             xiText={xiText}
-            setXiText={setXiText}
+            setXiText={changeXi}
+            xiEditable={canEditXi}
             xiError={xiError}
             controls={stepControls}
             onClose={() => setShowWindow(false)}

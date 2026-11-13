@@ -17,10 +17,11 @@ interface Props {
   record: StepRecord | null;
   material: Material;
   sourceWidth: number;
-  nextXiCount: number;
   xiText: string;
   setXiText: (s: string) => void;
   xiError: boolean;
+  /** True when the step on screen used random numbers and can be redone. */
+  xiEditable: boolean;
   controls: ReactNode;
   onClose: () => void;
 }
@@ -38,7 +39,7 @@ function Row({ k, v, color }: { k: ReactNode; v: ReactNode; color?: string }) {
 }
 
 export function StepWindow(props: Props) {
-  const { record: r, material, nextXiCount, xiText, setXiText, xiError, controls, onClose } = props;
+  const { record: r, material, xiText, setXiText, xiError, xiEditable, controls, onClose } = props;
   const t = useT();
   const c = useColors();
   const [pos, setPos] = useState(() => ({
@@ -246,16 +247,17 @@ export function StepWindow(props: Props) {
         <div className="controls">{controls}</div>
         <label className="xi-input">
           <span className="xi-label">
-            {t.nextXi} <small className="muted">· {t.nextNeeds(nextXiCount)}</small>
+            {t.xiThisStep}{' '}
+            <small className="muted">· {xiEditable ? t.xiThisStepHint : r && r.xi.length === 0 ? t.xiNone : t.xiNotEditable}</small>
           </span>
           <input
             type="text"
             inputMode="decimal"
-            value={xiText}
-            placeholder="0 ≤ ξ < 1"
-            disabled={nextXiCount === 0}
+            value={xiEditable ? xiText : ''}
+            placeholder={xiEditable ? '0 ≤ ξ < 1' : '—'}
+            disabled={!xiEditable}
             aria-invalid={xiError}
-            title={xiError ? `${t.invalid}: 0 ≤ ξ < 1` : t.nextXiHelp}
+            title={xiError ? `${t.invalid}: 0 ≤ ξ < 1` : t.xiThisStepHelp}
             onChange={(e) => setXiText(e.target.value)}
           />
         </label>

@@ -13,6 +13,9 @@ export interface Tally {
   score(ev: TallyEvent): void;
   endHistory(): void;
   reset(): void;
+  /** Copy of the internal state, so that a step can be undone. */
+  snapshot(): unknown;
+  restore(state: unknown): void;
 }
 
 export class Estimator {
@@ -34,6 +37,14 @@ export class Estimator {
   }
   reset() {
     this.n = this.sum = this.sumSq = 0;
+  }
+  snapshot() {
+    return { n: this.n, sum: this.sum, sumSq: this.sumSq };
+  }
+  restore(s: { n: number; sum: number; sumSq: number }) {
+    this.n = s.n;
+    this.sum = s.sum;
+    this.sumSq = s.sumSq;
   }
 }
 
@@ -76,5 +87,24 @@ export class SlabTransmissionTally implements Tally {
     this.uncollided.reset();
     this.scattered.reset();
     this.reflected.reset();
+  }
+
+  snapshot() {
+    return {
+      h: { ...this.h },
+      total: this.total.snapshot(),
+      uncollided: this.uncollided.snapshot(),
+      scattered: this.scattered.snapshot(),
+      reflected: this.reflected.snapshot(),
+    };
+  }
+
+  restore(state: unknown) {
+    const s = state as ReturnType<SlabTransmissionTally['snapshot']>;
+    this.h = { ...s.h };
+    this.total.restore(s.total);
+    this.uncollided.restore(s.uncollided);
+    this.scattered.restore(s.scattered);
+    this.reflected.restore(s.reflected);
   }
 }

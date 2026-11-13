@@ -81,4 +81,22 @@ describe('slab transport', () => {
     expect(rec.kind).toBe('flight');
     if (rec.kind === 'flight') expect(rec.s).toBeCloseTo(Math.log(2) / rec.mu, 10);
   });
+  it('redoing a step with another ξ, then with the original ξ, restores the same history', () => {
+    const build = () => slabExample.build({ material: 'Pb', energy: 0.662, thickness: 1, cutoff: 0.01 });
+    const ref = new Transport(build(), 99);
+    const refRecs = Array.from({ length: 40 }, () => ref.step());
+
+    const t = new Transport(build(), 99);
+    t.step(); // birth
+    t.step(); // lookup
+    const before = t.saveState();
+    const orig = t.step(); // flight
+    expect(orig.kind).toBe('flight');
+    const changed = t.redoStep(before, [0.5]);
+    if (changed.kind === 'flight') expect(changed.s).toBeCloseTo(Math.log(2) / changed.mu, 10);
+    const back = t.redoStep(before, [orig.xi[0].xi]);
+    expect(back).toEqual({ ...orig, xi: [{ xi: orig.xi[0].xi, manual: true }] });
+    // the rest of the history continues exactly as in the untouched run
+    for (let i = 3; i < 40; i++) expect(t.step()).toEqual(refRecs[i]);
+  });
 });

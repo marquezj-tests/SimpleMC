@@ -19,9 +19,9 @@ A small Monte Carlo program for teaching the basics of **Monte Carlo radiation t
 
   Photoelectric absorption, pair production (two 511 keV photons are sent to the bank), the energy cutoff and the end of the history are also shown as steps.
 
-  Buttons: **Next step**, **Next particle** (finishes the current history) and **Run** (steps continuously at the chosen speed). Before any step, students can **type their own ξ** to replace the random number, for example in pen-and-paper exercises.
+  Buttons: **Next step**, **Next particle** (finishes the current history) and **Run** (steps continuously at the chosen speed). The window shows the ξ that the current step used. Students can **type their own ξ** to redo that step with it, and the plots and results update immediately. This is useful for pen-and-paper exercises.
 
-The trajectories can be shown in a **2D** side view or an interactive **3D** view (drag to rotate, scroll to zoom). The interface is available in **English and Spanish**.
+The trajectories can be shown in a **2D** side view or an interactive **3D** view (drag to rotate, scroll to zoom). If the browser has no WebGL, the 3D view falls back to a simpler drawing on the ordinary 2D canvas. The interface is available in **English and Spanish**.
 
 ## Physics (teaching model)
 

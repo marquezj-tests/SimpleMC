@@ -133,6 +133,25 @@ type Phase =
   | 'absorb'
   | 'photonDone';
 
+export interface TransportState {
+  tracks: Track[];
+  photon: Photon | null;
+  bank: Photon[];
+  history: number;
+  phase: Phase;
+  photonsThisHistory: number;
+  transmittedThisHistory: number;
+  uncollidedThisHistory: number;
+  s: number;
+  boundary: { distance: number; surface: string };
+  reaction: Reaction;
+  absorbKind: Reaction | 'cutoff';
+  cosTheta: number;
+  Enew: number;
+  rng: number;
+  tally: unknown;
+}
+
 export class Transport {
   readonly problem: Problem;
   readonly rng: RNG;
@@ -434,6 +453,66 @@ export class Transport {
         };
       }
     }
+  }
+
+  /**
+   * Save everything a step can change. Used in step-by-step mode to redo
+   * the last step with a different random number.
+   */
+  saveState(): TransportState {
+    // tracks, photon and bank are cloned together so that shared track
+    // objects stay shared in the copy
+    const objects = structuredClone({ tracks: this.tracks, photon: this.photon, bank: this.bank });
+    return {
+      ...objects,
+      history: this.history,
+      phase: this.phase,
+      photonsThisHistory: this.photonsThisHistory,
+      transmittedThisHistory: this.transmittedThisHistory,
+      uncollidedThisHistory: this.uncollidedThisHistory,
+      s: this.s,
+      boundary: { ...this.boundary },
+      reaction: this.reaction,
+      absorbKind: this.absorbKind,
+      cosTheta: this.cosTheta,
+      Enew: this.Enew,
+      rng: this.rng.getState(),
+      tally: this.problem.tally.snapshot(),
+    };
+  }
+
+  restoreState(st: TransportState): void {
+    const objects = structuredClone({ tracks: st.tracks, photon: st.photon, bank: st.bank });
+    this.tracks = objects.tracks;
+    this.photon = objects.photon;
+    this.bank = objects.bank;
+    this.history = st.history;
+    this.phase = st.phase;
+    this.photonsThisHistory = st.photonsThisHistory;
+    this.transmittedThisHistory = st.transmittedThisHistory;
+    this.uncollidedThisHistory = st.uncollidedThisHistory;
+    this.s = st.s;
+    this.boundary = { ...st.boundary };
+    this.reaction = st.reaction;
+    this.absorbKind = st.absorbKind;
+    this.cosTheta = st.cosTheta;
+    this.Enew = st.Enew;
+    this.rng.setState(st.rng);
+    this.problem.tally.restore(st.tally);
+    this.version++;
+  }
+
+  /**
+   * Undo the last step and perform it again with the given random numbers
+   * (missing values are generated as before). `before` must be the state
+   * saved just before that step.
+   */
+  redoStep(before: TransportState, xi: number[]): StepRecord {
+    this.restoreState(before);
+    this.rng.override(xi);
+    const rec = this.step();
+    this.rng.clearOverride();
+    return rec;
   }
 
   /** Run steps until the current history is finished. */
