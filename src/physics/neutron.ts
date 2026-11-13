@@ -11,7 +11,8 @@
  *    spectrum E' exp(-E'/T), T = 3.2 sqrt(E/A) MeV, isotropic in the lab;
  *  - fission: total ν̄(E) from data, outgoing energy from a Watt spectrum
  *    fitted to the evaluated fission spectrum of each nuclide;
- *  - capture: the neutron disappears.
+ *  - capture: the neutron disappears;
+ *  - optional free-gas thermal motion of the targets below 400 kT.
  *
  * keff is estimated (a) from the ratio of the number of fission sites
  * banked to the number of source neutrons in each cycle, and (b) from the
@@ -41,7 +42,8 @@ export interface NuclideTable {
   fission: number[];
   capture: number[];
   nu: number[];
-  watt: { a: number; b: number; fittedAt: number };
+  /** Watt spectrum fitted to the evaluated fission spectrum; null for non-fissile nuclides */
+  watt: { a: number; b: number; fittedAt: number } | null;
   /** inverse CDF of the elastic centre-of-mass cosine: mu[i][j] at E[i], ξ = j/(xi−1) */
   elasticMu: { E: number[]; xi: number; mu: number[][] };
 }
@@ -56,7 +58,8 @@ export class Nuclide {
     this.table = t;
     this.id = t.id;
     this.awr = t.awr;
-    const { a, b } = t.watt;
+    // non-fissile nuclides get a placeholder spectrum that is never sampled
+    const { a, b } = t.watt ?? { a: 1, b: 2 };
     this.wattCdf = wattCdf(a, b);
   }
 
@@ -149,6 +152,23 @@ export interface CriticalProblem {
   cutoff: number;
   /** elastic angular distribution in the centre-of-mass frame */
   elastic: 'isotropic' | 'tabulated';
+  /**
+   * Source: fission sites (power iteration, default) or a fixed
+   * monoenergetic point source at the centre (no cycles; neutronsPerCycle
+   * histories are run once).
+   */
+  source?: { kind: 'fission' } | { kind: 'mono'; E: number };
+  /** Free-gas thermal motion of the targets below 400 kT (kT in MeV). */
+  freeGas?: { kT: number };
+  /** Energy bin edges of the spectrum tally (MeV, increasing, log-spaced). */
+  spectrumBins?: number[];
+}
+
+/** Log-spaced bin edges from lo to hi (MeV) with n bins. */
+export function logBins(lo: number, hi: number, n: number) {
+  const a = Math.log10(lo);
+  const b = Math.log10(hi);
+  return Array.from({ length: n + 1 }, (_, i) => Math.pow(10, a + ((b - a) * i) / n));
 }
 
 interface Site {
@@ -180,7 +200,30 @@ type Base = { cycle: number; index: number; neutron: NeutronState | null; xi: { 
 
 export type NStepRecord = Base &
   (
-    | { kind: 'birth'; E: number; spectrumOf: string; cdf: Cdf; initial: boolean; source: InitialSource; dir: Vec3; fromStack: boolean }
+    | {
+        kind: 'birth';
+        E: number;
+        spectrumOf: string;
+        /** CDF of the fission spectrum; null for a monoenergetic source */
+        cdf: Cdf | null;
+        initial: boolean;
+        source: InitialSource;
+        dir: Vec3;
+        fromStack: boolean;
+      }
+    | { kind: 'target'; A: number; kT: number; E: number; vt: number; Et: number; muNT: number; tries: number; nuclideIndex: number }
+    | {
+        kind: 'elasticGas';
+        A: number;
+        E: number;
+        Et: number;
+        muCm: number;
+        phi: number;
+        Enew: number;
+        muLab: number;
+        model: 'isotropic' | 'tabulated';
+        nuclideIndex: number;
+      }
     | { kind: 'lookup'; E: number; parts: { id: string; N: number; xs: NPartials & { total: number } }[]; Sigma: number }
     | { kind: 'flight'; Sigma: number; s: number; distance: number }
     | { kind: 'move'; s: number; distance: number; from: Vec3; to: Vec3; escaped: boolean; E: number }
@@ -287,6 +330,8 @@ type Phase =
   | 'reaction'
   | 'elastic'
   | 'azimuth'
+  | 'target'
+  | 'elasticGas'
   | 'inelastic'
   | 'nxn'
   | 'fission'
@@ -295,24 +340,24 @@ type Phase =
   | 'cycleEnd'
   | 'done';
 
-/** Energy bins for the spectrum tally (log-spaced, MeV). */
-export const SPECTRUM_BINS = (() => {
-  const lo = Math.log10(1e-9);
-  const hi = Math.log10(20);
-  const n = 70;
-  return Array.from({ length: n + 1 }, (_, i) => Math.pow(10, lo + ((hi - lo) * i) / n));
-})();
+/** Default energy bins for the spectrum tally (log-spaced, MeV). */
+export const SPECTRUM_BINS = logBins(1e-9, 20, 70);
 export const RADIAL_BINS = 20;
 /** Radius r/R at the middle (in volume) of each equal-volume shell of the source histogram. */
 export const RADIAL_CENTRES = Array.from({ length: RADIAL_BINS }, (_, i) => Math.cbrt((i + 0.5) / RADIAL_BINS));
 
 interface SavedState {
   tracks: Track[];
+  spectrumSources: number;
   neutron: Neutron | null;
   stack: Neutron[];
   bank: Site[];
   tally: SixFactorTally;
   spectrum: number[];
+  spectrumSq: number[];
+  historyFlux: Record<number, number>;
+  counts: { leaked: number; captured: number; collisions: number };
+  vt: Vec3;
   phase: Phase;
   history: number;
   index: number;
@@ -339,9 +384,19 @@ export class PowerIteration implements Engine<NStepRecord> {
   cycles: CycleResult[] = [];
   /** radial histogram of the source of each cycle (equal-volume shells, uniform = 1) */
   sourceHistograms: number[][] = [];
-  /** track-length flux per energy bin, summed over active cycles */
-  spectrum: number[] = new Array(SPECTRUM_BINS.length - 1).fill(0);
+  /** energy bin edges of the spectrum tally (MeV) */
+  readonly bins: number[];
+  /** track length per energy bin, summed over active cycles (and its per-history square) */
+  spectrum: number[];
+  spectrumSq: number[];
+  /** source neutrons scored in the spectrum */
   spectrumSources = 0;
+  /** fixed source: outcomes of the histories */
+  counts = { leaked: 0, captured: 0, collisions: 0 };
+  /** track length per bin in the current history */
+  private historyFlux: Record<number, number> = {};
+  /** sampled target velocity (free gas), in units where a neutron of energy E has speed √E */
+  private vt: Vec3 = { x: 0, y: 0, z: 0 };
   /** six-factor tallies summed over active cycles */
   sixTotal: SixFactorTally = emptyTally();
   /** message when the run cannot continue */
@@ -365,13 +420,21 @@ export class PowerIteration implements Engine<NStepRecord> {
   constructor(problem: CriticalProblem, seed: number) {
     this.problem = problem;
     this.rng = new RNG(seed);
+    this.bins = problem.spectrumBins ?? SPECTRUM_BINS;
+    this.spectrum = new Array(this.bins.length - 1).fill(0);
+    this.spectrumSq = new Array(this.bins.length - 1).fill(0);
     this.source = this.initialSource();
     this.recordSourceHistogram();
     this.rng.takeDrawn();
   }
 
+  get isFixedSource() {
+    return this.problem.source?.kind === 'mono';
+  }
+
   private initialSource(): Site[] {
     const { neutronsPerCycle: n, radius: R, initialSource } = this.problem;
+    if (this.isFixedSource) return Array.from({ length: n }, () => ({ pos: { x: 0, y: 0, z: 0 }, nuclide: 0 }));
     // the initial source uses the U-235 (first nuclide) fission spectrum
     return Array.from({ length: n }, () => {
       if (initialSource === 'point') return { pos: { x: 0, y: 0, z: 0 }, nuclide: 0 };
@@ -420,7 +483,11 @@ export class PowerIteration implements Engine<NStepRecord> {
   get nextXiCount() {
     switch (this.phase) {
       case 'birth':
-        return this.stack.length > 0 ? 0 : 3;
+        return this.stack.length > 0 ? 0 : this.isFixedSource ? 2 : 3;
+      case 'elasticGas':
+        return 2;
+      case 'target':
+        return 4;
       case 'flight':
       case 'nuclide':
       case 'reaction':
@@ -524,17 +591,20 @@ export class PowerIteration implements Engine<NStepRecord> {
         }
         this.history++;
         this.tally.N++;
+        this.historyFlux = {};
         const site = this.source[this.index];
         const nucl = pb.components[site.nuclide].nuclide;
-        const E = invertCdf(nucl.wattCdf, rng.next(), false);
+        const mono = pb.source?.kind === 'mono' ? pb.source.E : null;
+        const E = mono ?? invertCdf(nucl.wattCdf, rng.next(), false);
         const dir = isotropic(rng.next(), rng.next());
         this.neutron = this.newNeutron(site.pos, dir, Math.max(E, 1e-11), true);
+        if (mono !== null) this.spectrumSources++;
         this.phase = 'lookup';
         return {
           kind: 'birth',
           E,
           spectrumOf: nucl.id,
-          cdf: nucl.wattCdf,
+          cdf: mono !== null ? null : nucl.wattCdf,
           initial: this.cycle === 1,
           source: pb.initialSource,
           dir,
@@ -568,8 +638,11 @@ export class PowerIteration implements Engine<NStepRecord> {
         n.track.points.push({ ...n.pos });
         if (this.isActive) {
           // track-length estimator of the flux spectrum
-          const b = binIndex(n.E);
-          if (b >= 0) this.spectrum[b] += d;
+          const b = binIndex(this.bins, n.E);
+          if (b >= 0) {
+            this.spectrum[b] += d;
+            this.historyFlux[b] = (this.historyFlux[b] ?? 0) + d;
+          }
         }
         const rec = { kind: 'move' as const, s: this.s, distance: this.boundary, from, to: { ...n.pos }, escaped, E: n.E };
         if (escaped) {
@@ -577,6 +650,7 @@ export class PowerIteration implements Engine<NStepRecord> {
           if (n.E >= pb.cutoff) this.tally.leakFast++;
           else this.tally.leakThermal++;
           const r = { ...rec, ...base() };
+          if (n.primary) this.counts.leaked++;
           this.finishNeutron('leaked');
           return r;
         }
@@ -620,9 +694,11 @@ export class PowerIteration implements Engine<NStepRecord> {
           }
         this.reaction = chosen;
         n.collisions++;
+        this.counts.collisions++;
         n.track.uncollided = false;
         n.track.collisions.push({ pos: { ...n.pos }, kind: chosen });
-        this.phase = chosen === 'n2n' || chosen === 'n3n' ? 'nxn' : chosen;
+        const gas = chosen === 'elastic' && pb.freeGas && n.E < 400 * pb.freeGas.kT;
+        this.phase = chosen === 'n2n' || chosen === 'n3n' ? 'nxn' : gas ? 'target' : chosen;
         return { kind: 'reaction', E: n.E, nuclide: nucl.id, nuclideIndex: this.nuc, xs, probabilities, chosen, ...base() };
       }
 
@@ -638,6 +714,67 @@ export class PowerIteration implements Engine<NStepRecord> {
         this.setEnergy(Enew);
         this.phase = 'azimuth';
         return { kind: 'elastic', A, E, muCm, muLab: this.muLab, Enew, model: pb.elastic, nuclideIndex: this.nuc, ...base() };
+      }
+
+      case 'target': {
+        // Free gas: sample the velocity of the target nucleus (Maxwellian at
+        // temperature kT, weighted by the relative speed), as in OpenMC/MCNP.
+        const n = this.neutron!;
+        const A = pb.components[this.nuc].nuclide.awr;
+        const kT = pb.freeGas!.kT;
+        const bvn = Math.sqrt((A * n.E) / kT); // neutron speed in units of the thermal target speed
+        const alpha = 1 / (1 + (Math.sqrt(Math.PI) * bvn) / 2);
+        let bvt = 0;
+        let mu = 0;
+        let tries = 0;
+        for (;;) {
+          tries++;
+          let bvt2: number;
+          if (rng.next() < alpha) bvt2 = -Math.log((1 - rng.next()) * (1 - rng.next()));
+          else {
+            const c = Math.cos((Math.PI / 2) * rng.next());
+            bvt2 = -Math.log(1 - rng.next()) - Math.log(1 - rng.next()) * c * c;
+          }
+          bvt = Math.sqrt(bvt2);
+          mu = 2 * rng.next() - 1;
+          const accept = Math.sqrt(bvn * bvn + bvt2 - 2 * bvn * bvt * mu) / (bvn + bvt);
+          if (rng.next() < accept || tries > 1000) break;
+        }
+        const vt = bvt * Math.sqrt(kT / A);
+        const d = rotate(n.dir, mu, 2 * Math.PI * rng.next());
+        this.vt = { x: vt * d.x, y: vt * d.y, z: vt * d.z };
+        this.phase = 'elasticGas';
+        return { kind: 'target', A, kT, E: n.E, vt, Et: A * vt * vt, muNT: mu, tries, nuclideIndex: this.nuc, ...base() };
+      }
+
+      case 'elasticGas': {
+        // elastic collision with a moving target: go to the centre-of-mass frame,
+        // rotate the neutron velocity by (μ_cm, φ), come back to the lab
+        const n = this.neutron!;
+        const nucl = pb.components[this.nuc].nuclide;
+        const A = nucl.awr;
+        const E = n.E;
+        const sv = Math.sqrt(E);
+        const vn = { x: sv * n.dir.x, y: sv * n.dir.y, z: sv * n.dir.z };
+        const vt = this.vt;
+        const vcm = { x: (vn.x + A * vt.x) / (A + 1), y: (vn.y + A * vt.y) / (A + 1), z: (vn.z + A * vt.z) / (A + 1) };
+        const rel = { x: vn.x - vcm.x, y: vn.y - vcm.y, z: vn.z - vcm.z };
+        const speed = Math.hypot(rel.x, rel.y, rel.z);
+        const u = { x: rel.x / speed, y: rel.y / speed, z: rel.z / speed };
+        const xi = rng.next();
+        const muCm = pb.elastic === 'tabulated' ? nucl.elasticMuCm(E, xi) : 2 * xi - 1;
+        const phi = 2 * Math.PI * rng.next();
+        const w = rotate(u, muCm, phi);
+        const out = { x: speed * w.x + vcm.x, y: speed * w.y + vcm.y, z: speed * w.z + vcm.z };
+        const Enew = out.x * out.x + out.y * out.y + out.z * out.z;
+        const s2 = Math.sqrt(Enew);
+        const dir = { x: out.x / s2, y: out.y / s2, z: out.z / s2 };
+        const muLab = dir.x * n.dir.x + dir.y * n.dir.y + dir.z * n.dir.z;
+        n.dir = dir;
+        this.setEnergy(Enew);
+        this.phase = 'lookup';
+        const Et = A * (vt.x * vt.x + vt.y * vt.y + vt.z * vt.z);
+        return { kind: 'elasticGas', A, E, Et, muCm, phi, Enew, muLab, model: pb.elastic, nuclideIndex: this.nuc, ...base() };
       }
 
       case 'azimuth': {
@@ -704,6 +841,7 @@ export class PowerIteration implements Engine<NStepRecord> {
         if (n.E >= pb.cutoff) this.tally.absFast++;
         else this.tally.absThermal++;
         const rec = { kind: 'capture' as const, E: n.E, nuclide: pb.components[this.nuc].nuclide.id, ...base() };
+        if (n.primary) this.counts.captured++;
         this.finishNeutron('captured');
         return rec;
       }
@@ -716,7 +854,11 @@ export class PowerIteration implements Engine<NStepRecord> {
         const fate = this.fate;
         this.neutron = null;
         this.index++;
-        this.phase = this.index >= this.source.length ? 'cycleEnd' : 'birth';
+        // per-history scores of the spectrum (for its statistical error)
+        for (const [b, v] of Object.entries(this.historyFlux)) this.spectrumSq[Number(b)] += v * v;
+        this.historyFlux = {};
+        const last = this.index >= this.source.length;
+        this.phase = last ? (this.isFixedSource ? 'done' : 'cycleEnd') : 'birth';
         return { kind: 'historyEnd', fate, N: this.source.length, ...base(), index: this.index - 1 };
       }
 
@@ -805,12 +947,18 @@ export class PowerIteration implements Engine<NStepRecord> {
 
   saveState(): SavedState {
     const objects = structuredClone({
+      spectrumSources: this.spectrumSources,
+      history: this.history,
       tracks: this.tracks,
       neutron: this.neutron,
       stack: this.stack,
       bank: this.bank,
       tally: this.tally,
       spectrum: this.spectrum,
+      spectrumSq: this.spectrumSq,
+      historyFlux: this.historyFlux,
+      counts: this.counts,
+      vt: this.vt,
     });
     return {
       ...objects,
@@ -830,11 +978,16 @@ export class PowerIteration implements Engine<NStepRecord> {
   restoreState(state: unknown): void {
     const st = structuredClone(state) as SavedState;
     this.tracks = st.tracks;
+    this.spectrumSources = st.spectrumSources;
     this.neutron = st.neutron;
     this.stack = st.stack;
     this.bank = st.bank;
     this.tally = st.tally;
     this.spectrum = st.spectrum;
+    this.spectrumSq = st.spectrumSq;
+    this.historyFlux = st.historyFlux;
+    this.counts = st.counts;
+    this.vt = st.vt;
     this.phase = st.phase;
     this.history = st.history;
     this.index = st.index;
@@ -857,8 +1010,7 @@ export class PowerIteration implements Engine<NStepRecord> {
   }
 }
 
-function binIndex(E: number) {
-  const b = SPECTRUM_BINS;
+function binIndex(b: number[], E: number) {
   if (E < b[0] || E >= b[b.length - 1]) return -1;
   const lo = Math.log10(b[0]);
   const hi = Math.log10(b[b.length - 1]);

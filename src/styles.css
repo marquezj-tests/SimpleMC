@@ -623,3 +623,4 @@ input[aria-invalid='true'] {
 .view-loading { height: 300px; display: grid; place-items: center; color: var(--muted); }
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
 .panel.chart h2 { margin-bottom: 4px; }
+.panels.single { grid-template-columns: minmax(0, 1fr); }

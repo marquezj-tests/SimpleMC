@@ -79,6 +79,8 @@ const en = {
     noData: 'Run some active cycles to see this plot.',
   },
   kicker: (cycle: number, i: number, n: number) => `Cycle ${cycle} · neutron ${i + 1} of ${n}`,
+  kickerFixed: (i: number, n: number) => `Neutron ${i + 1} of ${n}`,
+  birthMonoTitle: '1 · Source: a neutron is emitted',
   secondary: 'secondary neutron',
   titles: {
     start: 'Power iteration',
@@ -90,6 +92,8 @@ const en = {
     nuclide: '5 · Sample the target nuclide',
     reaction: '6 · Sample the reaction',
     elastic: '7 · Elastic scattering: angle and new energy',
+    target: '7 · Free gas: sample the velocity of the target nucleus',
+    elasticGas: '8 · Elastic scattering on a moving target',
     azimuth: '8 · Azimuthal angle φ and new direction',
     inelastic: '7 · Inelastic scattering: new energy and direction',
     nxn: '7 · (n,xn) reaction: new neutrons',
@@ -120,6 +124,12 @@ const en = {
     elasticIso:
       'Simplified model: scattering is isotropic in the centre-of-mass frame, μ_cm = 2ξ − 1. For a target of mass ratio A at rest, E′ = E (A² + 2Aμ_cm + 1)/(A + 1)² and the lab cosine is μ_lab = (1 + Aμ_cm)/√(A² + 2Aμ_cm + 1).',
     azimuth: 'The azimuthal angle around the old direction is uniform, φ = 2πξ; the new direction is the old one rotated by θ_lab and φ.',
+    target:
+      'Below 400 kT the thermal motion of the nuclei matters: the neutron can gain energy. In the free-gas model the target velocity follows a Maxwellian at temperature T, weighted by the relative speed |v_n − v_t| (faster relative motion means more collisions). It is sampled by rejection, as in OpenMC and MCNP; the number of tries varies, so several ξ are used.',
+    elasticGas:
+      'The collision is computed in the centre-of-mass frame: v_cm = (v_n + A v_t)/(A + 1). There the neutron keeps its speed and its direction is rotated by μ_cm (ξ₁) and φ = 2πξ₂; going back to the lab gives E′, which can be larger than E when the target was moving fast.',
+    birthMono: (E: string) =>
+      `The point source at the centre emits a neutron of energy E₀ = ${E} in an isotropic direction: cos θ = 2ξ₁ − 1, φ = 2πξ₂.`,
     inelastic:
       'Simplified model: the outgoing energy follows an evaporation spectrum p(E′) ∝ E′ e^(−E′/T) with nuclear temperature T = 3.2 √(E/A) MeV, sampled as E′ = −T ln(ξ₁ξ₂) and rejected if E′ ≥ E. The new direction is isotropic in the lab (two more ξ).',
     nxn: 'The neutron is replaced by 2 or 3 neutrons, each with energy from the evaporation spectrum and an isotropic direction. They are pushed onto the stack and followed after this one.',
@@ -154,6 +164,10 @@ const en = {
     Enew: 'E′',
     T: 'temperature T',
     tries: 'tries (rejection)',
+    kT: 'kT',
+    vt: 'target speed / thermal speed √(2kT/A)',
+    Et: 'target kinetic energy',
+    muNT: 'cos (neutron, target)',
     newDir: 'new direction',
     oldDir: 'old direction',
     phi: 'φ = 2πξ',
@@ -270,6 +284,8 @@ const es: Text = {
     noData: 'Simule algunos ciclos activos para ver esta gráfica.',
   },
   kicker: (cycle: number, i: number, n: number) => `Ciclo ${cycle} · neutrón ${i + 1} de ${n}`,
+  kickerFixed: (i: number, n: number) => `Neutrón ${i + 1} de ${n}`,
+  birthMonoTitle: '1 · Fuente: se emite un neutrón',
   secondary: 'neutrón secundario',
   titles: {
     start: 'Iteración de potencia',
@@ -281,6 +297,8 @@ const es: Text = {
     nuclide: '5 · Muestrear el núcleo blanco',
     reaction: '6 · Muestrear la reacción',
     elastic: '7 · Dispersión elástica: ángulo y nueva energía',
+    target: '7 · Gas libre: muestrear la velocidad del núcleo blanco',
+    elasticGas: '8 · Dispersión elástica con un blanco en movimiento',
     azimuth: '8 · Ángulo azimutal φ y nueva dirección',
     inelastic: '7 · Dispersión inelástica: nueva energía y dirección',
     nxn: '7 · Reacción (n,xn): nuevos neutrones',
@@ -311,6 +329,12 @@ const es: Text = {
     elasticIso:
       'Modelo simplificado: la dispersión es isótropa en el sistema centro de masas, μ_cm = 2ξ − 1. Para un blanco en reposo de razón de masas A, E′ = E (A² + 2Aμ_cm + 1)/(A + 1)² y el coseno en el laboratorio es μ_lab = (1 + Aμ_cm)/√(A² + 2Aμ_cm + 1).',
     azimuth: 'El ángulo azimutal alrededor de la dirección anterior es uniforme, φ = 2πξ; la nueva dirección es la anterior rotada θ_lab y φ.',
+    target:
+      'Por debajo de 400 kT importa el movimiento térmico de los núcleos: el neutrón puede ganar energía. En el modelo de gas libre la velocidad del blanco sigue una maxwelliana a temperatura T, pesada por la velocidad relativa |v_n − v_t| (más velocidad relativa, más colisiones). Se muestrea por rechazo, como en OpenMC y MCNP; el número de intentos varía, así que se usan varios ξ.',
+    elasticGas:
+      'La colisión se calcula en el sistema centro de masas: v_cm = (v_n + A v_t)/(A + 1). Allí el neutrón conserva su rapidez y su dirección se rota μ_cm (ξ₁) y φ = 2πξ₂; al volver al laboratorio se obtiene E′, que puede ser mayor que E si el blanco se movía rápido.',
+    birthMono: (E: string) =>
+      `La fuente puntual en el centro emite un neutrón de energía E₀ = ${E} en dirección isótropa: cos θ = 2ξ₁ − 1, φ = 2πξ₂.`,
     inelastic:
       'Modelo simplificado: la energía de salida sigue un espectro de evaporación p(E′) ∝ E′ e^(−E′/T) con temperatura nuclear T = 3,2 √(E/A) MeV, muestreado como E′ = −T ln(ξ₁ξ₂) y rechazado si E′ ≥ E. La nueva dirección es isótropa en el laboratorio (dos ξ más).',
     nxn: 'El neutrón se sustituye por 2 o 3 neutrones, cada uno con energía del espectro de evaporación y dirección isótropa. Se apilan y se siguen después de este.',
@@ -345,6 +369,10 @@ const es: Text = {
     Enew: 'E′',
     T: 'temperatura T',
     tries: 'intentos (rechazo)',
+    kT: 'kT',
+    vt: 'rapidez del blanco / rapidez térmica √(2kT/A)',
+    Et: 'energía cinética del blanco',
+    muNT: 'cos (neutrón, blanco)',
     newDir: 'nueva dirección',
     oldDir: 'dirección anterior',
     phi: 'φ = 2πξ',

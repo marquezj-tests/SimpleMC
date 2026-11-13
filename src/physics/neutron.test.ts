@@ -78,3 +78,53 @@ describe('power iteration', () => {
     expect(recs).toEqual(refRecs);
   });
 });
+
+describe('water sphere, fixed source', () => {
+  const load = async () => {
+    const [h, o] = await Promise.all([import('../data/neutron/H1.json'), import('../data/neutron/O16.json')]);
+    return { H1: new Nuclide(h.default as NuclideTable), O16: new Nuclide(o.default as NuclideTable) };
+  };
+
+  it('free gas gives a thermal peak near 2kT; every neutron leaks or is absorbed', async () => {
+    const { buildWater, KT_WATER, waterExample } = await import('../examples/water');
+    const data = await load();
+    const pi = buildWater({ ...waterExample.defaults, histories: 1500 }, 3, data);
+    while (!pi.isDone) pi.finishHistory();
+    expect(pi.spectrumSources).toBe(1500);
+    expect(pi.counts.leaked + pi.counts.captured).toBe(1500);
+    const b = pi.bins;
+    let best = -1;
+    let Epk = 0;
+    pi.spectrum.forEach((v, i) => {
+      const y = v / Math.log(b[i + 1] / b[i]);
+      const E = Math.sqrt(b[i] * b[i + 1]);
+      if (E < 1e-6 && y > best) {
+        best = y;
+        Epk = E;
+      }
+    });
+    expect(Epk / (2 * KT_WATER)).toBeGreaterThan(0.6);
+    expect(Epk / (2 * KT_WATER)).toBeLessThan(1.6);
+  });
+
+  it('redoing steps (including free-gas steps) with the original ξ reproduces the run', async () => {
+    const { buildWater, waterExample } = await import('../examples/water');
+    const data = await load();
+    const v = { ...waterExample.defaults, histories: 5, energy: 1e-6 };
+    const ref = buildWater(v, 11, data);
+    const refRecs = Array.from({ length: 400 }, () => ref.step());
+    expect(refRecs.some((r) => r.kind === 'target')).toBe(true);
+    const pi = buildWater(v, 11, data);
+    const recs = [];
+    for (let i = 0; i < 400; i++) {
+      if (pi.nextXiCount > 0 && i % 3 === 1) {
+        const before = pi.saveState();
+        const orig = pi.step();
+        pi.redoStep(before, [0.77]);
+        const again = pi.redoStep(before, orig.xi.map((x) => x.xi));
+        recs.push({ ...again, xi: again.xi.map((x) => ({ ...x, manual: false })) });
+      } else recs.push(pi.step());
+    }
+    expect(recs).toEqual(refRecs);
+  });
+});

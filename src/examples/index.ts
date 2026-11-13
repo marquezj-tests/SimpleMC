@@ -1,5 +1,6 @@
 import { slabExample } from './slab';
 import { godivaExample } from './godiva';
+import { waterExample } from './water';
 import type { Example } from './types';
 
-export const EXAMPLES: Example[] = [slabExample, godivaExample];
+export const EXAMPLES: Example[] = [slabExample, godivaExample, waterExample];

@@ -111,9 +111,10 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
   const xi = r?.xi ?? [];
   const xiv = (i = 0) => xi[i]?.xi ?? 0;
 
+  const fixed = engine.isFixedSource;
   if (!r) {
     return {
-      kicker: T.kicker(engine.cycle, engine.neutronIndex, engine.sourceSize),
+      kicker: fixed ? T.kickerFixed(engine.neutronIndex, engine.sourceSize) : T.kicker(engine.cycle, engine.neutronIndex, engine.sourceSize),
       title: T.titles.start,
       explanation: T.explain.start,
     };
@@ -123,14 +124,26 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
   const kicker =
     r.kind === 'cycleEnd' || r.kind === 'done'
       ? `${T.cycle} ${r.cycle}`
-      : T.kicker(r.cycle, r.index, engine.sourceSize) + (n && !n.primary ? ` · ${T.secondary}` : '') + (n ? ` · ${fmtE(n.E)}` : '');
+      : (fixed ? T.kickerFixed(r.index, engine.sourceSize) : T.kicker(r.cycle, r.index, engine.sourceSize)) + (n && !n.primary ? ` · ${T.secondary}` : '') + (n ? ` · ${fmtE(n.E)}` : '');
   let explanation = '';
   let visual: ReactNode = null;
   let rows: ReactNode = null;
-  const title = T.titles[r.kind];
+  let title = T.titles[r.kind];
 
   switch (r.kind) {
     case 'birth': {
+      if (!r.cdf) {
+        // monoenergetic point source
+        title = T.birthMonoTitle;
+        explanation = T.explain.birthMono(fmtE(r.E));
+        rows = (
+          <>
+            <Row k="E₀" v={fmtE(r.E)} />
+            <Row k={T.rows.dir} v={fmtVec(r.dir)} />
+          </>
+        );
+        break;
+      }
       explanation = r.initial ? T.explain.birthInitial(r.source) : T.explain.birth(r.spectrumOf);
       visual = (
         <CdfPlot
@@ -309,6 +322,33 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
       );
       break;
     }
+    case 'target':
+      explanation = T.explain.target;
+      rows = (
+        <>
+          <Row k={T.rows.nuclide} v={nuclides[r.nuclideIndex].id} />
+          <Row k={T.rows.kT} v={fmtE(r.kT)} />
+          <Row k={T.rows.E} v={fmtE(r.E)} />
+          <Row k={T.rows.Et} v={`${fmtE(r.Et)} (${(r.Et / r.kT).toFixed(2)} kT)`} />
+          <Row k={T.rows.muNT} v={r.muNT.toFixed(4)} />
+          <Row k={T.rows.tries} v={r.tries} />
+        </>
+      );
+      break;
+    case 'elasticGas':
+      explanation = T.explain.elasticGas;
+      visual = <ScatterDiagram cosTheta={r.muLab} color={c.reaction.elastic} />;
+      rows = (
+        <>
+          <Row k={T.rows.A} v={r.A.toFixed(4)} />
+          <Row k={r.model === 'tabulated' ? 'μ_cm = F⁻¹(ξ₁)' : 'μ_cm = 2ξ₁ − 1'} v={r.muCm.toFixed(4)} />
+          <Row k="φ = 2πξ₂" v={`${deg(r.phi).toFixed(1)}°`} />
+          <Row k={T.rows.Et} v={fmtE(r.Et)} />
+          <Row k="E → E′" v={`${fmtE(r.E)} → ${fmtE(r.Enew)}${r.Enew > r.E ? ' ↑' : ''}`} />
+          <Row k={T.rows.thetaLab} v={`${deg(Math.acos(Math.max(-1, Math.min(1, r.muLab)))).toFixed(1)}°`} />
+        </>
+      );
+      break;
     case 'azimuth':
       explanation = T.explain.azimuth;
       visual = <AzimuthDiagram phi={r.phi} />;

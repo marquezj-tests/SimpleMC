@@ -7,7 +7,9 @@ Usage (needs OpenMC, e.g. `conda install -c conda-forge openmc=0.16.0`):
 
     # ENDF-B-VII.1-neutron-293.6K.tar.gz from
     # https://www.nndc.bnl.gov/endf-b7.1/aceFiles/
-    python scripts/preprocess_openmc.py <dir with U_235_293.6K.ace, U_238_293.6K.ace> [hdf5_out_dir]
+    python scripts/preprocess_openmc.py <dir with the *_293.6K.ace files> [hdf5_out_dir] [names...]
+
+Default names: U_235 U_238 H_001 O_016.
 
 For each nuclide it
   * reads the ACE file with openmc.data.IncidentNeutron.from_ace,
@@ -144,9 +146,10 @@ def process(ace_dir: Path, name: str, h5_dir: Path | None):
     fission = xs_on_grid(nuc, 18, E)
     # capture: everything else, so that the partial cross sections add up to the total
     capture = np.maximum(0.0, total - elastic - inelastic - n2n - n3n - n4n - fission)
-    nu = nubar(nuc, E)
+    fissile = 18 in nuc.reactions
+    nu = nubar(nuc, E) if fissile else np.zeros_like(E)
     keep = thin(E, [total, elastic, inelastic, fission, capture, n2n, nu])
-    a, b, Ein = watt_fit(nuc)
+    a, b, Ein = watt_fit(nuc) if fissile else (0.0, 0.0, 0.0)
     data = {
         'id': nuc.name,
         'Z': nuc.atomic_number,
@@ -165,16 +168,17 @@ def process(ace_dir: Path, name: str, h5_dir: Path | None):
         'fission': sig(fission[keep]),
         'capture': sig(capture[keep]),
         'nu': sig(nu[keep], 5),
-        'watt': {'a': round(a, 4), 'b': round(b, 4), 'fittedAt': Ein / 1e6},
+        'watt': {'a': round(a, 4), 'b': round(b, 4), 'fittedAt': Ein / 1e6} if fissile else None,
         'elasticMu': elastic_angles(nuc),
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f'{nuc.name}.json').write_text(json.dumps(data, separators=(',', ':')))
-    print(f'{nuc.name}: {len(E)} -> {len(keep)} energies; Watt a={a:.4f} MeV b={b:.4f} 1/MeV')
+    print(f'{nuc.name}: {len(E)} -> {len(keep)} energies' + (f'; Watt a={a:.4f} MeV b={b:.4f} 1/MeV' if fissile else ''))
 
 
 if __name__ == '__main__':
     ace_dir = Path(sys.argv[1])
     h5 = Path(sys.argv[2]) if len(sys.argv) > 2 else None
-    for n in ('U_235', 'U_238'):
+    names = sys.argv[3:] or ['U_235', 'U_238', 'H_001', 'O_016']
+    for n in names:
         process(ace_dir, n, h5)

@@ -75,7 +75,7 @@ export function GodivaPanels({ engine, reference }: { engine: PowerIteration; re
     const y = mx > 0 ? v / mx : 0;
     spec.push([SPECTRUM_BINS[i], y], [SPECTRUM_BINS[i + 1], y]);
   });
-  const watt = engine.problem.components[0].nuclide.table.watt;
+  const watt = engine.problem.components[0].nuclide.table.watt ?? { a: 1, b: 2 };
   const wattPts: [number, number][] = [];
   let wmax = 0;
   for (let i = 0; i <= 200; i++) {

@@ -2,7 +2,7 @@
 
 A small Monte Carlo program for teaching the basics of **Monte Carlo radiation transport**. It runs entirely in the browser and is deployed as a GitHub Pages site.
 
-Two examples are included. Choose one from the selector at the top of the page.
+Three examples are included. Choose one from the selector at the top of the page.
 
 **Example 1: slab shield, parallel beam.** A parallel beam of monoenergetic photons hits a slab at normal incidence. The program estimates the fraction of photons transmitted through the back face, split into uncollided and scattered photons. It compares the uncollided part with the analytic value e^(−μt) and reports the buildup factor.
 
@@ -16,6 +16,8 @@ Other features:
 - **Cycles:** separate counts of inactive and active cycles.
 - **Charts:** keff per cycle, the convergence of the fission source and the neutron spectrum.
 - **Reference values:** the result is compared with OpenMC (same data, full physics) and with the benchmark.
+
+**Example 3: neutron point source in a water sphere.** A monoenergetic neutron point source at the centre of a sphere of water (H-1 and O-16, ENDF/B-VII.1 via OpenMC). The track-length estimator gives the neutron spectrum averaged over the sphere, E·φ(E) per unit lethargy with ±1σ. It shows the source line, the 1/E slowing-down plateau and the thermal Maxwellian peak near 2kT. Below 400 kT, collisions use the free-gas model at 293.6 K, and its two extra steps are shown in step-by-step mode: sampling the target velocity, then scattering in the centre-of-mass frame. You can switch to targets at rest to see that without thermal motion there is no equilibrium peak. Radius, source energy and number of histories are adjustable; leakage and absorption fractions are reported.
 
 ## Modes
 
@@ -55,7 +57,8 @@ Materials: lead, iron, water and ordinary concrete (NIST composition, ρ = 2.3 g
 
 | Item | Treatment |
 |---|---|
-| Data | ENDF/B-VII.1, NNDC ACE library at 293.6 K, read and processed with the OpenMC Python API (`scripts/preprocess_openmc.py`): U-235 and U-238; U-234 counted as U-238 |
+| Data | ENDF/B-VII.1, NNDC ACE library at 293.6 K, read and processed with the OpenMC Python API (`scripts/preprocess_openmc.py`): U-235 and U-238 (U-234 counted as U-238), H-1 and O-16 |
+| Thermal motion (water example) | Free-gas target velocity sampling below 400 kT at 293.6 K (no S(α,β)) |
 | Cross sections | Pointwise, linear interpolation; grid thinned to 1% accuracy above 50 keV and 5% below |
 | Elastic | Target at rest. Centre-of-mass angle from the evaluated angular distribution (default), or isotropic in the centre-of-mass frame as an option to show its effect on leakage |
 | Inelastic, (n,2n), (n,3n) | Evaporation spectrum E′ e^(−E′/T), T = 3.2 √(E/A) MeV, isotropic emission |
@@ -86,7 +89,7 @@ The neutron data in `src/data/neutron/` were produced with OpenMC 0.16.0 (from c
 
 ```bash
 # ENDF-B-VII.1-neutron-293.6K.tar.gz from https://www.nndc.bnl.gov/endf-b7.1/aceFiles/
-python scripts/preprocess_openmc.py <dir with U_235_293.6K.ace, U_238_293.6K.ace> <hdf5 output dir>
+python scripts/preprocess_openmc.py <dir with the *_293.6K.ace files> <hdf5 output dir>   # U-235, U-238, H-1, O-16
 python scripts/openmc_reference.py <hdf5 output dir>
 ```
 
