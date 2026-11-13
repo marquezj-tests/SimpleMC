@@ -10,6 +10,8 @@ interface Props {
   version: number;
   thickness: number;
   showCurrent: boolean;
+  /** Called when WebGL is unavailable or the context is lost. */
+  onFail: (reason: 'unsupported' | 'lost') => void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * by the slab thickness. Screen axes: depth z → X (left to right),
  * x → Y (up), y → Z.
  */
-export function TrackView3D({ transport, version, thickness, showCurrent }: Props) {
+export function TrackView3D({ transport, version, thickness, showCurrent, onFail }: Props) {
   const c = useColors();
   const box = useRef<HTMLDivElement>(null);
   const three = useRef<{
@@ -32,7 +34,18 @@ export function TrackView3D({ transport, version, thickness, showCurrent }: Prop
   // set-up once
   useEffect(() => {
     const el = box.current!;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch {
+      // WebGL disabled, blocklisted GPU, hardware acceleration off, ...
+      onFail('unsupported');
+      return;
+    }
+    renderer.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      onFail('lost');
+    });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();

@@ -8,6 +8,7 @@ import { ResultsPanel } from './ui/ResultsPanel';
 import { StepWindow } from './ui/StepWindow';
 import { TrackView2D } from './ui/TrackView2D';
 import { Legend } from './ui/Legend';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 
 // three.js is only downloaded when the 3D view is opened
 const TrackView3D = lazy(() => import('./ui/TrackView3D').then((m) => ({ default: m.TrackView3D })));
@@ -58,6 +59,10 @@ export default function App() {
   const [xiText, setXiText] = useState('');
   const [version, setVersion] = useState(0);
   const [resetCount, setResetCount] = useState(0);
+  /** Why the 3D view is unavailable, if it is. */
+  const [view3dError, setView3dError] = useState<null | 'unsupported' | 'lost' | 'crash'>(null);
+  /** Bumped by “Try again” to remount the 3D view. */
+  const [view3dKey, setView3dKey] = useState(0);
 
   useEffect(() => {
     store.set('simplemc.lang', lang);
@@ -296,9 +301,44 @@ export default function App() {
                   showCurrent={showCurrent}
                 />
               ) : (
-                <Suspense fallback={<div className="view3d loading">…</div>}>
-                  <TrackView3D transport={transport} version={version} thickness={thickness} showCurrent={showCurrent} />
-                </Suspense>
+                view3dError ? (
+                  <div className="view-error" role="alert">
+                    <p>{view3dError === 'unsupported' ? t.view3dUnsupported : view3dError === 'lost' ? t.view3dLost : t.view3dCrash}</p>
+                    <div className="controls">
+                      <button className="btn primary" onClick={() => setView('2d')}>
+                        {t.backTo2d}
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setView3dError(null);
+                          setView3dKey((k) => k + 1);
+                        }}
+                      >
+                        {t.retry}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <ErrorBoundary
+                    key={view3dKey}
+                    fallback={() => {
+                      // report after render; the boundary shows nothing meanwhile
+                      queueMicrotask(() => setView3dError((e) => e ?? 'crash'));
+                      return null;
+                    }}
+                  >
+                    <Suspense fallback={<div className="view3d loading">…</div>}>
+                      <TrackView3D
+                        transport={transport}
+                        version={version}
+                        thickness={thickness}
+                        showCurrent={showCurrent}
+                        onFail={(reason) => setView3dError(reason)}
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
+                )
               )}
             </div>
             <Legend />
