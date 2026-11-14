@@ -249,6 +249,13 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
           <Row k={T.rows.from} v={`${fmtVec(r.from)} cm`} />
           <Row k={T.rows.to} v={`${fmtVec(r.to)} cm`} />
           <Row k={r.escaped ? '→' : '●'} v={r.escaped ? T.rows.leaks : T.rows.collides} />
+          {!fixed && r.scores && (
+            <>
+              <Row k={T.rows.scoreP} v={r.scores.prod.toFixed(4)} />
+              <Row k={T.rows.scoreA} v={r.scores.abs.toFixed(4)} />
+            </>
+          )}
+          {!fixed && r.escaped && <Row k="L" v="+1" />}
         </>
       );
       break;
@@ -487,6 +494,12 @@ export function godivaStepContent(r: NStepRecord | null, engine: PowerIteration,
           {r.kMean !== null && (
             <Row k={T.rows.kMean} v={`${r.kMean.toFixed(5)}${Number.isFinite(r.kSigma) ? ` ± ${r.kSigma!.toFixed(5)}` : ''}`} />
           )}
+          <Row k={T.rows.P} v={r.balance.P.toFixed(2)} />
+          <Row k={T.rows.Aabs} v={r.balance.A.toFixed(2)} />
+          <Row k={T.rows.L} v={r.balance.L} />
+          <Row k={T.rows.kbar} v={r.balance.kbar.toFixed(4)} />
+          <Row k={T.rows.PNL} v={r.balance.PNL.toFixed(4)} />
+          <Row k={T.rows.kTwo} v={r.balance.k.toFixed(5)} />
           <Row k="→" v={T.rows.nextSource} />
         </>
       );

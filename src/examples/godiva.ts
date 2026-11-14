@@ -8,7 +8,6 @@ import {
   type NuclideTable,
 } from '../physics/neutron';
 import type { Dict } from '../i18n';
-import { fmtE } from '../ui/format';
 import reference from '../data/neutron/reference.json';
 import { GodivaPanels } from './GodivaPanels';
 import { godivaStepContent } from './godivaSteps';
@@ -39,7 +38,6 @@ export function buildGodiva(v: ParamValues, seed: number, data = nuclides): Powe
       inactive: Number(v.inactive),
       active: Number(v.active),
       initialSource: v.initialSource as InitialSource,
-      cutoff: Number(v.cutoff) * 1e-6, // eV → MeV
       elastic: v.elastic as 'isotropic' | 'tabulated',
     },
     seed,
@@ -94,20 +92,6 @@ export const godivaExample: Example = {
     { key: 'inactive', type: 'number', label: L((t) => t.params.inactive), min: 0, max: 10_000, step: 1, integer: true },
     { key: 'active', type: 'number', label: L((t) => t.params.active), min: 1, max: 100_000, step: 1, integer: true },
     {
-      key: 'cutoff',
-      type: 'number',
-      label: L((t) => t.params.cutoff),
-      unit: 'eV',
-      min: 1e-5,
-      max: 2e7,
-      presets: [
-        { label: '0.625 eV (classic)', value: 0.625 },
-        { label: '1 keV', value: 1e3 },
-        { label: '100 keV', value: 1e5 },
-        { label: '1 MeV', value: 1e6 },
-      ],
-    },
-    {
       key: 'elastic',
       type: 'select',
       label: L((t) => t.params.elastic),
@@ -125,7 +109,6 @@ export const godivaExample: Example = {
     neutronsPerCycle: 1000,
     inactive: 10,
     active: 40,
-    cutoff: 0.625,
     elastic: 'tabulated',
   },
   load: loadNuclides,
@@ -145,9 +128,7 @@ export const godivaExample: Example = {
       results(t, c) {
         const T = GODIVA_TEXT[t.lang];
         const ks = engine.kSourceEstimate();
-        const six = engine.kSixEstimate();
-        const f = six.factors;
-        const ec = fmtE(engine.problem.cutoff);
+        const two = engine.twoFactorEstimate();
         return [
           {
             label: T.cycle,
@@ -156,23 +137,11 @@ export const godivaExample: Example = {
           },
           { label: t.historiesDone, value: engine.history },
           { label: T.kSource, value: ks?.mean ?? NaN, sigma: ks?.sigma, main: true, fixed: 5, heading: T.keffHeading, color: c.track.uncollided },
-          {
-            label: T.kSix,
-            value: f.k,
-            sigma: six.sigma,
-            fixed: 5,
-            color: c.reaction.inelastic,
-            text: six.n > 0 && !Number.isFinite(f.k) ? T.kSixUndefined : undefined,
-          },
+          { label: T.kTwo, value: two.k?.mean ?? NaN, sigma: two.k?.sigma, fixed: 5, color: c.reaction.inelastic },
           { label: T.kRef, value: reference.keff, sigma: reference.sigma, fixed: 5 },
           { label: T.kBench, value: reference.benchmark.keff, sigma: reference.benchmark.sigma, fixed: 3 },
-          { label: T.factors.epsilon, value: f.epsilon, fixed: 4, heading: T.sixHeading(ec) },
-          { label: T.factors.p, value: f.p, fixed: 4 },
-          { label: T.factors.PFNL, value: f.PFNL, fixed: 4 },
-          { label: T.factors.f, value: f.f, fixed: 4 },
-          { label: T.factors.eta, value: f.eta, fixed: 4 },
-          { label: T.factors.PTNL, value: f.PTNL, fixed: 4 },
-          { label: T.factors.k, value: f.k, fixed: 5 },
+          { label: T.factors.kbar, value: two.kbar?.mean ?? NaN, sigma: two.kbar?.sigma, fixed: 4, heading: T.twoHeading },
+          { label: T.factors.PNL, value: two.PNL?.mean ?? NaN, sigma: two.PNL?.sigma, fixed: 4 },
         ];
       },
       trackStyle: (tr, c) => ({ color: c.ntrack[tr.fate ?? 'leaked'] ?? c.muted, dashed: !tr.primary }),

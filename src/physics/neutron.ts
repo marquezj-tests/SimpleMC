@@ -18,8 +18,9 @@
  *
  * keff is estimated (a) from the ratio of the number of fission sites
  * banked to the number of source neutrons in each cycle, and (b) from the
- * six-factor formula (four-factor formula with leakage), whose factors are
- * tallied with a fast/thermal cutoff energy Ec.
+ * two-factor decomposition k = k̄ · P_NL, with production P and absorption A
+ * from collision estimators and leakage L counted at the surface:
+ *   k̄ = P/A (production/absorption ratio), P_NL = A/(A + L) (non-leakage).
  */
 import type { Engine, Track } from './engine';
 import { RNG } from './rng';
@@ -241,8 +242,6 @@ export interface CriticalProblem {
   inactive: number;
   active: number;
   initialSource: InitialSource;
-  /** fast/thermal boundary for the six-factor formula (MeV) */
-  cutoff: number;
   /** elastic angular distribution in the centre-of-mass frame */
   elastic: 'isotropic' | 'tabulated';
   /**
@@ -320,7 +319,17 @@ export type NStepRecord = Base &
       }
     | { kind: 'lookup'; E: number; parts: { id: string; N: number; xs: NPartials & { total: number } }[]; Sigma: number }
     | { kind: 'flight'; Sigma: number; s: number; distance: number }
-    | { kind: 'move'; s: number; distance: number; from: Vec3; to: Vec3; escaped: boolean; E: number }
+    | {
+        kind: 'move';
+        s: number;
+        distance: number;
+        from: Vec3;
+        to: Vec3;
+        escaped: boolean;
+        E: number;
+        /** collision-estimator scores νΣf/Σt and Σa/Σt (null when the neutron leaks) */
+        scores: { prod: number; abs: number } | null;
+      }
     | { kind: 'nuclide'; E: number; probabilities: { id: string; p: number; cum: number }[]; chosen: string }
     | {
         kind: 'reaction';
@@ -348,61 +357,36 @@ export type NStepRecord = Base &
         kMean: number | null;
         kSigma: number | null;
         nextSize: number;
+        /** this cycle's P, A, L and the two factors */
+        balance: BalanceTally & { kbar: number; PNL: number; k: number };
       }
     | { kind: 'done' }
   );
 
-/** Six-factor tallies of one cycle; see `sixFactors()`. */
-export interface SixFactorTally {
+/**
+ * Tallies of one cycle for the two-factor decomposition. P and A are
+ * collision estimators: at every collision νΣf/Σt is added to P and Σa/Σt to
+ * A. Σa is the net absorption Σc + Σf − Σ(n,2n) − 2Σ(n,3n), so that on
+ * average A + L = N (every source neutron is absorbed or leaks).
+ */
+export interface BalanceTally {
   /** source neutrons */
   N: number;
-  /** expected fission neutrons (ν̄) from fast / thermal fissions */
-  nuFast: number;
-  nuThermal: number;
-  /** neutrons slowing down below the cutoff (or born below it) */
-  thermalized: number;
-  /** net fast absorptions: captures + fissions − extra (n,xn) neutrons */
-  absFast: number;
-  /** thermal absorptions, all in fuel */
-  absThermal: number;
-  leakFast: number;
-  leakThermal: number;
+  /** production rate: fission neutrons per cycle */
+  P: number;
+  /** net absorption rate */
+  A: number;
+  /** neutrons leaking through the surface */
+  L: number;
 }
 
-const emptyTally = (): SixFactorTally => ({
-  N: 0,
-  nuFast: 0,
-  nuThermal: 0,
-  thermalized: 0,
-  absFast: 0,
-  absThermal: 0,
-  leakFast: 0,
-  leakThermal: 0,
-});
+const emptyTally = (): BalanceTally => ({ N: 0, P: 0, A: 0, L: 0 });
 
-export interface SixFactors {
-  epsilon: number;
-  p: number;
-  PFNL: number;
-  f: number;
-  eta: number;
-  PTNL: number;
-  k: number;
-}
-
-/**
- * Six-factor formula k = ε p P_FNL f η P_TNL from tallies. Undefined factors
- * (division by zero, e.g. no thermal neutrons) are NaN.
- */
-export function sixFactors(t: SixFactorTally): SixFactors {
-  const div = (a: number, b: number) => (b > 0 ? a / b : NaN);
-  const epsilon = div(t.nuFast + t.nuThermal, t.nuThermal);
-  const p = div(t.thermalized, t.thermalized + t.absFast);
-  const PFNL = div(t.thermalized + t.absFast, t.thermalized + t.absFast + t.leakFast);
-  const f = t.absThermal > 0 ? 1 : NaN; // the sphere is all fuel
-  const eta = div(t.nuThermal, t.absThermal);
-  const PTNL = div(t.absThermal, t.absThermal + t.leakThermal);
-  return { epsilon, p, PFNL, f, eta, PTNL, k: epsilon * p * PFNL * f * eta * PTNL };
+/** k = k̄ · P_NL with k̄ = P/A and P_NL = A/(A + L). */
+export function twoFactors(t: BalanceTally) {
+  const kbar = t.A > 0 ? t.P / t.A : NaN;
+  const PNL = t.A + t.L > 0 ? t.A / (t.A + t.L) : NaN;
+  return { kbar, PNL, k: kbar * PNL };
 }
 
 export interface CycleResult {
@@ -410,9 +394,11 @@ export interface CycleResult {
   active: boolean;
   /** source-ratio estimate: fission sites banked / source neutrons */
   kSource: number;
-  /** six-factor estimate; equals (ν̄ fast + ν̄ thermal)/N whenever all factors are defined */
-  kSix: number;
-  tally: SixFactorTally;
+  /** two-factor estimate k̄ · P_NL = P/(A + L) */
+  kTwo: number;
+  kbar: number;
+  PNL: number;
+  tally: BalanceTally;
 }
 
 type Phase =
@@ -447,7 +433,7 @@ interface SavedState {
   neutron: Neutron | null;
   stack: Neutron[];
   bank: Site[];
-  tally: SixFactorTally;
+  tally: BalanceTally;
   spectrum: number[];
   spectrumSq: number[];
   historyFlux: Record<number, number>;
@@ -492,8 +478,6 @@ export class PowerIteration implements Engine<NStepRecord> {
   private historyFlux: Record<number, number> = {};
   /** sampled target velocity (free gas), in units where a neutron of energy E has speed √E */
   private vt: Vec3 = { x: 0, y: 0, z: 0 };
-  /** six-factor tallies summed over active cycles */
-  sixTotal: SixFactorTally = emptyTally();
   /** message when the run cannot continue */
   stopped: string | null = null;
 
@@ -503,7 +487,7 @@ export class PowerIteration implements Engine<NStepRecord> {
   private index = 0; // index of the source neutron in the cycle
   private neutron: Neutron | null = null;
   private stack: Neutron[] = [];
-  private tally: SixFactorTally = emptyTally();
+  private tally: BalanceTally = emptyTally();
   private fate: NFate = 'leaked';
   // carried between steps
   private s = 0;
@@ -606,7 +590,6 @@ export class PowerIteration implements Engine<NStepRecord> {
   }
 
   private newNeutron(pos: Vec3, dir: Vec3, E: number, primary: boolean): Neutron {
-    if (E < this.problem.cutoff) this.tally.thermalized++;
     return {
       pos: { ...pos },
       dir: { ...dir },
@@ -642,12 +625,9 @@ export class PowerIteration implements Engine<NStepRecord> {
     return -b + Math.sqrt(Math.max(0, b * b - c));
   }
 
-  /** Change the energy of the current neutron, scoring slowing down below the cutoff. */
+  /** Change the energy of the current neutron. */
   private setEnergy(Enew: number) {
-    const n = this.neutron!;
-    const Ec = this.problem.cutoff;
-    if (n.E >= Ec && Enew < Ec) this.tally.thermalized++;
-    n.E = Enew;
+    this.neutron!.E = Enew;
   }
 
   /** Sample E' from the evaporation spectrum E' exp(-E'/T), truncated to E' < E. */
@@ -740,11 +720,24 @@ export class PowerIteration implements Engine<NStepRecord> {
             this.historyFlux[b] = (this.historyFlux[b] ?? 0) + d;
           }
         }
-        const rec = { kind: 'move' as const, s: this.s, distance: this.boundary, from, to: { ...n.pos }, escaped, E: n.E };
+        // collision estimators of production and absorption: score at every collision
+        let scores: { prod: number; abs: number } | null = null;
+        if (!escaped) {
+          const { parts, Sigma } = this.macro(n.E);
+          let prod = 0;
+          let abs = 0;
+          for (const p of parts) {
+            prod += p.N * p.xs.nu * p.xs.fission;
+            abs += p.N * (p.xs.capture + p.xs.fission - p.xs.n2n - 2 * p.xs.n3n);
+          }
+          scores = { prod: prod / Sigma, abs: abs / Sigma };
+          this.tally.P += scores.prod;
+          this.tally.A += scores.abs;
+        }
+        const rec = { kind: 'move' as const, s: this.s, distance: this.boundary, from, to: { ...n.pos }, escaped, E: n.E, scores };
         if (escaped) {
           n.track.exitDir = { ...n.dir };
-          if (n.E >= pb.cutoff) this.tally.leakFast++;
-          else this.tally.leakThermal++;
+          this.tally.L++;
           const r = { ...rec, ...base() };
           if (n.primary) this.counts.leaked++;
           this.finishNeutron('leaked');
@@ -919,7 +912,6 @@ export class PowerIteration implements Engine<NStepRecord> {
           energies.push(ev.Enew);
           this.stack.push(this.newNeutron(n.pos, dir, ev.Enew, false));
         }
-        if (n.E >= pb.cutoff) this.tally.absFast += 1 - m; // net absorption
         const rec = { kind: 'nxn' as const, multiplicity: m, E: n.E, T, energies, ...base() };
         this.finishNeutron('nxn');
         return rec;
@@ -932,13 +924,6 @@ export class PowerIteration implements Engine<NStepRecord> {
         // integer number of sites with the right mean: floor(ν̄ + ξ)
         const banked = Math.floor(nu + rng.next());
         for (let i = 0; i < banked; i++) this.bank.push({ pos: { ...n.pos }, nuclide: this.nuc });
-        if (n.E >= pb.cutoff) {
-          this.tally.absFast++;
-          this.tally.nuFast += nu;
-        } else {
-          this.tally.absThermal++;
-          this.tally.nuThermal += nu;
-        }
         const rec = { kind: 'fission' as const, E: n.E, nuclide: nucl.id, nu, banked, ...base() };
         this.finishNeutron('fission');
         return rec;
@@ -946,8 +931,6 @@ export class PowerIteration implements Engine<NStepRecord> {
 
       case 'capture': {
         const n = this.neutron!;
-        if (n.E >= pb.cutoff) this.tally.absFast++;
-        else this.tally.absThermal++;
         const rec = { kind: 'capture' as const, E: n.E, nuclide: pb.components[this.nuc].nuclide.id, ...base() };
         if (n.primary) this.counts.captured++;
         this.finishNeutron('captured');
@@ -976,13 +959,9 @@ export class PowerIteration implements Engine<NStepRecord> {
         const M = this.bank.length;
         const k = M / N;
         const active = this.isActive;
-        const six = sixFactors(this.tally);
-        const kSix = this.tally.N > 0 ? (this.tally.nuFast + this.tally.nuThermal) / this.tally.N : NaN;
-        this.cycles.push({ cycle: this.cycle, active, kSource: k, kSix: Number.isFinite(six.k) ? six.k : kSix, tally: this.tally });
-        if (active) {
-          for (const key of Object.keys(this.sixTotal) as (keyof SixFactorTally)[]) this.sixTotal[key] += this.tally[key];
-          this.spectrumSources += N;
-        }
+        const two = twoFactors(this.tally);
+        this.cycles.push({ cycle: this.cycle, active, kSource: k, kTwo: two.k, kbar: two.kbar, PNL: two.PNL, tally: this.tally });
+        if (active) this.spectrumSources += N;
         const est = this.kSourceEstimate();
         const rec = {
           kind: 'cycleEnd' as const,
@@ -992,6 +971,7 @@ export class PowerIteration implements Engine<NStepRecord> {
           active,
           kMean: est?.mean ?? null,
           kSigma: est?.sigma ?? null,
+          balance: { ...this.tally, ...two },
           nextSize: Math.min(M, pb.neutronsPerCycle),
         };
         // next source: N sites sampled from the fission bank
@@ -1031,11 +1011,14 @@ export class PowerIteration implements Engine<NStepRecord> {
     return this.stats(this.cycles.filter((c) => c.active).map((c) => c.kSource));
   }
 
-  /** Six-factor estimate: factors from the summed tallies, σ from cycle-to-cycle spread. */
-  kSixEstimate() {
-    const factors = sixFactors(this.sixTotal);
-    const st = this.stats(this.cycles.filter((c) => c.active).map((c) => (c.tally.nuFast + c.tally.nuThermal) / c.tally.N));
-    return { factors, sigma: st?.sigma ?? NaN, n: st?.n ?? 0 };
+  /** Two-factor estimates: means over active cycles of k̄, P_NL and k = k̄ · P_NL, with σ. */
+  twoFactorEstimate() {
+    const act = this.cycles.filter((c) => c.active);
+    return {
+      k: this.stats(act.map((c) => c.kTwo)),
+      kbar: this.stats(act.map((c) => c.kbar)),
+      PNL: this.stats(act.map((c) => c.PNL)),
+    };
   }
 
   finishHistory(): NStepRecord {

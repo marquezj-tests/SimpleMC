@@ -3,7 +3,7 @@ import U235 from '../data/neutron/U235.json';
 import U238 from '../data/neutron/U238.json';
 import reference from '../data/neutron/reference.json';
 import { godivaExample, buildGodiva } from '../examples/godiva';
-import { NREACTIONS, Nuclide, sampleSab, sabWeights, sixFactors, type NuclideTable, type SabTable } from './neutron';
+import { NREACTIONS, Nuclide, sampleSab, sabWeights, twoFactors, type NuclideTable, type SabTable } from './neutron';
 
 const data = { U235: new Nuclide(U235 as NuclideTable), U238: new Nuclide(U238 as NuclideTable) };
 const godiva = (over: Record<string, number | string> = {}, seed = 1) =>
@@ -34,23 +34,24 @@ describe('power iteration', () => {
     expect(Math.abs(k.mean - reference.keff)).toBeLessThan(0.03);
   });
 
-  it('the six factors multiply to the absorption estimate of k', () => {
-    const pi = godiva({ neutronsPerCycle: 500, inactive: 2, active: 6, cutoff: 1e5 });
+  it('two-factor decomposition: k = k̄ · P_NL = P/(A + L), consistent with the source ratio', () => {
+    const pi = godiva({ neutronsPerCycle: 1000, inactive: 3, active: 15 });
     while (!pi.isDone) pi.finishHistory();
-    const t = pi.sixTotal;
-    const f = sixFactors(t);
-    expect(Number.isFinite(f.k)).toBe(true);
-    expect(f.k).toBeCloseTo((t.nuFast + t.nuThermal) / t.N, 10);
-    // and both k estimators agree statistically
+    for (const c of pi.cycles) {
+      const t = c.tally;
+      const f = twoFactors(t);
+      expect(f.k).toBeCloseTo(t.P / (t.A + t.L), 12);
+      expect(c.kTwo).toBe(f.k);
+      // neutron balance: every source neutron is absorbed or leaks (on average)
+      expect(Math.abs(t.A + t.L - t.N) / t.N).toBeLessThan(0.1);
+    }
+    const two = pi.twoFactorEstimate();
     const ks = pi.kSourceEstimate()!;
-    expect(Math.abs(f.k - ks.mean)).toBeLessThan(0.05);
-  });
-
-  it('with the classic 0.625 eV cutoff the thermal factors of Godiva are undefined', () => {
-    const pi = godiva({ neutronsPerCycle: 300, inactive: 1, active: 3 });
-    while (!pi.isDone) pi.finishHistory();
-    const f = sixFactors(pi.sixTotal);
-    expect(Number.isNaN(f.eta)).toBe(true);
+    expect(Math.abs(two.k!.mean - ks.mean)).toBeLessThan(4 * Math.hypot(two.k!.sigma, ks.sigma));
+    // a bare fast sphere: more than half of the neutrons leak
+    expect(two.PNL!.mean).toBeGreaterThan(0.35);
+    expect(two.PNL!.mean).toBeLessThan(0.55);
+    expect(two.kbar!.mean).toBeGreaterThan(2);
   });
 
   it('a uniform initial source starts spread over the sphere', () => {

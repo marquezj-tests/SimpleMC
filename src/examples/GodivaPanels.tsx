@@ -31,7 +31,7 @@ export function GodivaPanels({ engine, reference }: { engine: PowerIteration; re
   const total = engine.totalCycles;
 
   // ---- keff per cycle
-  const ks = cycles.flatMap((x) => [x.kSource, x.kSix]).filter(Number.isFinite);
+  const ks = cycles.flatMap((x) => [x.kSource, x.kTwo]).filter(Number.isFinite);
   ks.push(reference);
   let ymin = Math.min(...ks);
   let ymax = Math.max(...ks);
@@ -105,7 +105,7 @@ export function GodivaPanels({ engine, reference }: { engine: PowerIteration; re
                 if (!cy) return [];
                 return [
                   { label: T.perCycleSource, value: cy.kSource.toFixed(5), color: c.track.uncollided },
-                  { label: T.perCycleSix, value: Number.isFinite(cy.kSix) ? cy.kSix.toFixed(5) : '—', color: c.reaction.inelastic },
+                  { label: T.perCycleSix, value: Number.isFinite(cy.kTwo) ? cy.kTwo.toFixed(5) : '—', color: c.reaction.inelastic },
                 ];
               }}
               overlay={(sx, sy) => (
@@ -128,7 +128,7 @@ export function GodivaPanels({ engine, reference }: { engine: PowerIteration; re
                   <line x1={sx(0.5)} x2={sx(total + 0.5)} y1={sy(reference)} y2={sy(reference)} stroke={c.ink2} strokeDasharray="5 4" />
                   {cycles.map((q) => (
                     <g key={q.cycle}>
-                      {Number.isFinite(q.kSix) && <circle cx={sx(q.cycle)} cy={sy(q.kSix)} r={2.5} fill={c.reaction.inelastic} />}
+                      {Number.isFinite(q.kTwo) && <circle cx={sx(q.cycle)} cy={sy(q.kTwo)} r={2.5} fill={c.reaction.inelastic} />}
                       <circle cx={sx(q.cycle)} cy={sy(q.kSource)} r={3} fill={c.track.uncollided} stroke={c.surface} strokeWidth={1} />
                     </g>
                   ))}

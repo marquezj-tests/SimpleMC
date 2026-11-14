@@ -48,7 +48,6 @@ export function buildWater(v: ParamValues, seed: number, data: WaterData | null 
       inactive: 0,
       active: 1,
       initialSource: 'point',
-      cutoff: 0.625e-6,
       elastic: v.elastic as 'isotropic' | 'tabulated',
       source: { kind: 'mono', E: Number(v.energy) },
       // free gas for oxygen (and for hydrogen above the S(α,β) table)

@@ -8,7 +8,7 @@ Three examples are included. Choose one from the selector at the top of the page
 
 **Example 2: critical sphere (Godiva), power iteration.** A bare sphere of highly enriched uranium (HEU-MET-FAST-001: r = 8.7407 cm, ρ = 18.74 g/cm³, 93.71 wt% U-235). Neutrons are followed generation by generation, and keff is estimated in two ways:
 - **Source ratio:** k = M/N, the number of fission sites banked divided by the number of source neutrons in each cycle.
-- **Six-factor formula:** k = ε p P_FNL f η P_TNL, the four-factor formula with fast and thermal non-leakage, tallied with an adjustable fast/thermal cutoff Ec.
+- **Two-factor decomposition:** k = k̄ · P_NL, with k̄ = P/A (production/absorption ratio) and P_NL = A/(A + L) (non-leakage probability). Production P = Σ νΣf/Σt and absorption A = Σ Σa/Σt are collision estimators, scored at every collision; leakage L counts neutrons leaving the sphere. Σa is net absorption: capture + fission − (n,2n) − 2·(n,3n).
 
 Other features:
 - **Initial source:** a point at the centre, or uniform in the sphere.
@@ -100,7 +100,7 @@ python scripts/openmc_reference.py <hdf5 output dir>
 src/physics/      transport engines, independent of the UI
   engine.ts       interface shared by the engines (step, tracks, undo/redo of a step)
   transport.ts    photon random walk as a state machine (one call to step() = one elementary step)
-  neutron.ts      neutron transport and power iteration, keff estimators, six-factor tallies
+  neutron.ts      neutron transport and power iteration, keff estimators (source ratio, k̄ · P_NL)
   material.ts     XCOM tables and interpolation
   sampling.ts     Klein–Nishina / Rayleigh CDFs, direction rotation
   geometry.ts     slab geometry
