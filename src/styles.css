@@ -624,3 +624,15 @@ input[aria-invalid='true'] {
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
 .panel.chart h2 { margin-bottom: 4px; }
 .panels.single { grid-template-columns: minmax(0, 1fr); }
+.lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.flag {
+  width: 21px;
+  height: 14px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  flex: none;
+}

@@ -11,9 +11,13 @@ import { Legend } from './ui/Legend';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { TrackView3DCanvas } from './ui/TrackView3DCanvas';
 import { useColors } from './ui/colors';
+import { FlagAR, FlagUK } from './ui/Flags';
 
 // three.js is only downloaded when the 3D view is opened
 const TrackView3D = lazy(() => import('./ui/TrackView3D').then((m) => ({ default: m.TrackView3D })));
+
+/** Example shown when the page opens. */
+const DEFAULT_EXAMPLE = 'godiva';
 
 type Mode = 'auto' | 'step';
 type View = '2d' | '3d';
@@ -47,7 +51,7 @@ export default function App() {
   const [lang, setLang] = useState<Lang>(() => (store.get('simplemc.lang') === 'es' ? 'es' : 'en'));
   const t = DICTS[lang];
   const colors = useColors();
-  const [exampleId, setExampleId] = useState(EXAMPLES[0].id);
+  const [exampleId, setExampleId] = useState(DEFAULT_EXAMPLE);
   const example = EXAMPLES.find((e) => e.id === exampleId) ?? EXAMPLES[0];
   const [values, setValues] = useState<ParamValues>(example.defaults);
   const [seed, setSeed] = useState(12345);
@@ -268,7 +272,15 @@ export default function App() {
             </label>
             <div className="segmented" role="group" aria-label={t.language}>
               {(['en', 'es'] as const).map((l) => (
-                <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)} aria-pressed={lang === l}>
+                <button
+                  key={l}
+                  className={`lang-btn ${lang === l ? 'on' : ''}`}
+                  onClick={() => setLang(l)}
+                  aria-pressed={lang === l}
+                  aria-label={l === 'en' ? 'English' : 'Español'}
+                  title={l === 'en' ? 'English' : 'Español'}
+                >
+                  {l === 'en' ? <FlagUK /> : <FlagAR />}
                   {l.toUpperCase()}
                 </button>
               ))}
