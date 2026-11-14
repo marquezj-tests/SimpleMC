@@ -13,7 +13,8 @@ import { fmtE } from '../ui/format';
  * Parallel beam hitting the front face of the slab at normal incidence.
  * The slab is infinite in x and y, so the entry point does not change the
  * physics; it is spread over `width` only so that the tracks do not overlap
- * in the drawing.
+ * in the drawing. The same value is used for x and y (one random number), so
+ * the tracks are also separated in the 3D view.
  */
 export class ParallelBeam implements Source {
   constructor(
@@ -22,7 +23,7 @@ export class ParallelBeam implements Source {
   ) {}
   sample(rng: { next(): number }) {
     const x = (rng.next() - 0.5) * this.width;
-    return { pos: { x, y: 0, z: 0 }, dir: { x: 0, y: 0, z: 1 }, E: this.E };
+    return { pos: { x, y: x, z: 0 }, dir: { x: 0, y: 0, z: 1 }, E: this.E };
   }
 }
 

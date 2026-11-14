@@ -93,7 +93,7 @@ const en = {
     historyEnd: 'End of history',
   },
   explain: {
-    birth: 'The source emits a photon of energy E₀ travelling along +z, perpendicular to the slab. Since the slab is infinite in x and y, the entry point does not matter; it is sampled only to spread the tracks in the drawing: x = (ξ − ½)·W.',
+    birth: 'The source emits a photon of energy E₀ travelling along +z, perpendicular to the slab. Since the slab is infinite in x and y, the entry point does not matter; it is sampled only to spread the tracks in the drawing: x = y = (ξ − ½)·W (the same value for x and y separates the tracks in the 3D view).',
     bank: 'A pair production event left annihilation photons waiting in the “bank” (a stack). We now follow the next one with the same algorithm.',
     lookup: 'Read the total mass attenuation coefficient μ/ρ at the photon energy from the XCOM table (log–log interpolation) and multiply by the density to get the linear attenuation coefficient μ, the probability of interaction per unit path length.',
     flight: 'The distance s to the next interaction has density p(s) = μ·e^(−μs). Its cumulative distribution is F(s) = 1 − e^(−μs). Setting F(s) = ξ and solving gives s = −ln(1 − ξ)/μ (inverse transform method). The dashed line marks the distance to the slab boundary along the current direction.',
@@ -246,7 +246,7 @@ const es: Dict = {
     historyEnd: 'Fin de la historia',
   },
   explain: {
-    birth: 'La fuente emite un fotón de energía E₀ que viaja según +z, perpendicular a la placa. Como la placa es infinita en x e y, el punto de entrada no importa; se muestrea solo para separar las trayectorias en el dibujo: x = (ξ − ½)·W.',
+    birth: 'La fuente emite un fotón de energía E₀ que viaja según +z, perpendicular a la placa. Como la placa es infinita en x e y, el punto de entrada no importa; se muestrea solo para separar las trayectorias en el dibujo: x = y = (ξ − ½)·W (el mismo valor para x e y separa las trayectorias en la vista 3D).',
     bank: 'Una producción de pares dejó fotones de aniquilación esperando en el «banco» (una pila). Ahora seguimos el siguiente con el mismo algoritmo.',
     lookup: 'Se lee el coeficiente másico de atenuación total μ/ρ a la energía del fotón en la tabla XCOM (interpolación log–log) y se multiplica por la densidad para obtener el coeficiente lineal μ, la probabilidad de interacción por unidad de camino.',
     flight: 'La distancia s hasta la siguiente interacción tiene densidad p(s) = μ·e^(−μs). Su función de distribución acumulada es F(s) = 1 − e^(−μs). Igualando F(s) = ξ y despejando se obtiene s = −ln(1 − ξ)/μ (método de la transformada inversa). La línea discontinua marca la distancia al borde de la placa en la dirección actual.',

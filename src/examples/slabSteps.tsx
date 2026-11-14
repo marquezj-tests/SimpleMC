@@ -40,7 +40,7 @@ export function slabStepContent(
           <>
             <Row k="E₀" v={fmtE(r.E)} />
             <Row k="ξ" v={xiv().toFixed(4)} />
-            <Row k="x = (ξ − ½)·W" v={`(${xiv().toFixed(4)} − 0.5) × ${fmt(sourceWidth)} cm = ${fmt(r.x)} cm`} />
+            <Row k="x = y = (ξ − ½)·W" v={`(${xiv().toFixed(4)} − 0.5) × ${fmt(sourceWidth)} cm = ${fmt(r.x)} cm`} />
             <Row k="Ω" v="(0, 0, 1)" />
           </>
         );
